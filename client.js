@@ -2646,12 +2646,19 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
 
        The extent is measured against the geometry it actually fades over, and the radius
        against the short side, so a sharp zone always remains inside the frame:
-         radial (hero)    -> soft * 0.5 * min(w, h)          half the short side
+         radial (hero)    -> soft * BOKEH_RADIAL_FILL * 0.5 * min(w, h)
          axial  (running) -> soft * (column width / 2)       the sidebar and the details
                                                              panel stay sharp by construction
        (An earlier revision scaled by max(w,h), which on 16:9 puts the sharp boundary
-       outside the frame and leaves nothing sharp anywhere.) */
+       outside the frame and leaves nothing sharp anywhere.)
+       BOKEH_RADIAL_FILL exists because 0.5 * min(w, h) is the LARGEST circle that fits, so
+       reusing the axial `soft` directly (1.10 at strong) pushed the radius past half the
+       short side: the circle was then clipped top and bottom, the falloff survived only
+       left and right, and the hero page read as a vertical band - i.e. exactly the axial
+       look it is supposed to be the alternative to. The fill keeps every level inside the
+       frame with a visible sharp margin on all four sides. */
     const BOKEH_STEPS = 3
+    const BOKEH_RADIAL_FILL = 0.7
     /* Sigma in CSS px, plus the extent multiplier described above. Raised about 60% from
        the first shipped values (1.5 / 2.5 / 3.5): at those the defocused band still read as
        a slightly softer copy of the sharp line rather than as something actually out of
@@ -2737,7 +2744,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
     }
     const contourBokehExtent = (cfg, spec, w, h) => (spec.radial
-      ? cfg.soft * 0.5 * Math.min(w, h)
+      ? cfg.soft * BOKEH_RADIAL_FILL * 0.5 * Math.min(w, h)
       : cfg.soft * (spec.half === null ? Math.min(w, h) * 0.5 : spec.half))
     /* One band mask: a hat in the axis distance u, 0 on the axis and 1 at the sharp
        boundary. Radial draws the hats straight; axial mirrors each about the axis, which is
