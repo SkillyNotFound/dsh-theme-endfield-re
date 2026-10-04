@@ -288,6 +288,27 @@ if (src.includes("turnStatus")) {
   else fail('turn-status rules found but no background-image gradient — a plain color: cannot recolour gradient text')
 }
 
+/* --- 5. the client bundle must register under the PACKAGE name ---
+   The host's client-modules half finds a bundle by the id it self-registers with, and
+   every bundle shipped with dsh uses its own package name (`@deepseek-ai/dsh-api-gateway`
+   and friends). A fork that renames the package but leaves upstream's id in the bundle is
+   loaded under one name and registers another, so the theme silently never applies. This
+   is what catches the rename being done in package.json alone. */
+const pkgName = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).name } catch { return null }
+})()
+const registeredId = (src.match(/__ModuleLoader__\.load\(\{\s*id:\s*"([^"]+)"/) || [])[1]
+if (registeredId === undefined) {
+  /* A mutated copy under selftest may not register at all; rule 3 owns parseability. */
+  if (file === path.join(__dirname, 'client.js')) fail('client.js never registers with __ModuleLoader__')
+} else if (pkgName === null) {
+  fail('package.json has no readable name')
+} else if (registeredId === pkgName) {
+  pass('client.js registers under the package name (' + pkgName + ')')
+} else {
+  fail('client.js registers as "' + registeredId + '" but the package is "' + pkgName + '" — the host looks the bundle up by the registered id')
+}
+
 console.log('')
 if (failures) {
   console.error(`${failures} check(s) failed`)

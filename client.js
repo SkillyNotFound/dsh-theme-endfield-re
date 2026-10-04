@@ -22,7 +22,7 @@
  * 通过 `dsh plugin --profile web add github:SkillyNotFound/dsh-theme-endfield-re` 安装挂载。
  */
 window.__ModuleLoader__.load({
-	id: "dsh-theme-endfield",
+	id: "dsh-theme-endfield-re",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
@@ -2644,21 +2644,21 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        paid once per layout. This is also why the pass needs the MAIN-THREAD rasteriser and
        the worker is not a legal backend while a level is selected - see bokehNeedsMainThread.
 
-       The extent is measured against the geometry it actually fades over, and the radius
-       against the short side, so a sharp zone always remains inside the frame:
-         radial (hero)    -> soft * BOKEH_RADIAL_FILL * 0.5 * min(w, h)
-         axial  (running) -> soft * (column width / 2)       the sidebar and the details
+       The hero page does NOT reuse the axial falloff rotated to the other axis. What was
+       asked for there is a HORIZONTAL line that stops short of both ends, so the hero shape
+       is an ELLIPSE: wide across the frame, thin vertically, with its half-width and
+       half-height as separate fractions of the frame, both scaled by the level's `soft`:
+         hero band  -> half-width  soft * BOKEH_BAND_WIDTH  * 0.5 * w
+                       half-height soft * BOKEH_BAND_HEIGHT * h
+         running    -> soft * (column width / 2)             the sidebar and the details
                                                              panel stay sharp by construction
+       BOKEH_BAND_WIDTH stays below 0.5, so at every level the band's ends fade out BEFORE
+       the frame edges rather than running into them.
        (An earlier revision scaled by max(w,h), which on 16:9 puts the sharp boundary
-       outside the frame and leaves nothing sharp anywhere.)
-       BOKEH_RADIAL_FILL exists because 0.5 * min(w, h) is the LARGEST circle that fits, so
-       reusing the axial `soft` directly (1.10 at strong) pushed the radius past half the
-       short side: the circle was then clipped top and bottom, the falloff survived only
-       left and right, and the hero page read as a vertical band - i.e. exactly the axial
-       look it is supposed to be the alternative to. The fill keeps every level inside the
-       frame with a visible sharp margin on all four sides. */
+       outside the frame and leaves nothing sharp anywhere.) */
     const BOKEH_STEPS = 3
-    const BOKEH_RADIAL_FILL = 0.7
+    const BOKEH_BAND_WIDTH = 0.7
+    const BOKEH_BAND_HEIGHT = 0.11
     /* Sigma in CSS px, plus the extent multiplier described above. Raised about 60% from
        the first shipped values (1.5 / 2.5 / 3.5): at those the defocused band still read as
        a slightly softer copy of the sharp line rather than as something actually out of
@@ -2689,6 +2689,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        the original ink rather than from whatever is left of it. Surface 1 is cleared per
        band and holds one blurred, masked band at a time. */
     const contourBokehSurfaces = [{ cv: null }, { cv: null }]
+    /* Last mode written to the page, so the DevTools readout is only touched on a change. */
+    let contourBokehModeAttr = null
     const contourBokehSurface = (index, w, h, scale) => {
       const state = contourBokehSurfaces[index]
       const bw = Math.max(1, Math.round(w * scale))
@@ -2712,9 +2714,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     /* Which way the defocus fades. data-phase is rendered ONLY on ConversationRoot
        (settling|hero|active) and the theme already uses that for its own hero detection,
        so the two phases map onto it exactly:
-           hero (before a conversation starts) -> 中心散开: a radial falloff centred on the
-                                                  FRAME centre - a point, and deliberately
-                                                  not the conversation axis
+           hero (before a conversation starts) -> 横向一条带: an ELLIPTICAL falloff centred
+                                                  on the FRAME centre - wide across the
+                                                  frame, thin vertically, and stopping
+                                                  short of both ends. Deliberately not the
+                                                  conversation axis, and not a point.
            anything else (a conversation)      -> 中轴线向两侧散开: a falloff in
                                                   |x - axis|, peaking on the conversation
                                                   column's centre line and easing off to
@@ -2737,19 +2741,48 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         hero = document.querySelector('[class$="_root"][data-phase="hero"]') !== null
       }
       return {
-        radial: hero,
+        band: hero,
         x: hero ? w * 0.5 : (colX === null ? w * 0.5 : colX),
         y: h * 0.5,
         half,
       }
     }
-    const contourBokehExtent = (cfg, spec, w, h) => (spec.radial
-      ? cfg.soft * BOKEH_RADIAL_FILL * 0.5 * Math.min(w, h)
+    const contourBokehExtent = (cfg, spec, w, h) => (spec.band
+      ? cfg.soft * BOKEH_BAND_WIDTH * 0.5 * w
       : cfg.soft * (spec.half === null ? Math.min(w, h) * 0.5 : spec.half))
-    /* One band mask: a hat in the axis distance u, 0 on the axis and 1 at the sharp
-       boundary. Radial draws the hats straight; axial mirrors each about the axis, which is
-       the same function written in gradient offsets. */
-    const contourBokehMask = (target, spec, w, h, extent, band) => {
+    /* Canvas has no elliptical gradient, so the hero band is painted by squashing the
+       context about the band's centre line and letting the CIRCLE become the ellipse. The
+       factor carries no `soft` (both radii do), so it is a pure function of the frame; 1
+       means "no squash", which is what the axial path uses. */
+    const contourBokehSquash = (spec, w, h) => {
+      if (!spec.band || w <= 0) return 1
+      const s = (2 * BOKEH_BAND_HEIGHT * h) / (BOKEH_BAND_WIDTH * w)
+      return s > 0 ? s : 1
+    }
+    /* Paints one gradient over the whole canvas in the shape the spec asks for. The gradient
+       has to be CREATED inside the squash - its coordinates are interpreted in the user
+       space in effect when it is painted - and the fill has to cover the canvas in that same
+       squashed space, hence h / squash. */
+    const paintBokehGradient = (target, spec, w, h, extent, squash, stops) => {
+      const useSquash = squash !== 1 && typeof target.scale === 'function'
+      target.save()
+      if (useSquash) target.scale(1, squash)
+      const cy = useSquash ? spec.y / squash : spec.y
+      const g = spec.band
+        ? target.createRadialGradient(spec.x, cy, 0, spec.x, cy, extent)
+        : target.createLinearGradient(spec.x - extent, 0, spec.x + extent, 0)
+      for (const stop of stops) {
+        g.addColorStop(Math.max(0, Math.min(1, stop[0])), 'rgba(0,0,0,' + stop[1] + ')')
+      }
+      target.fillStyle = g
+      target.fillRect(0, 0, w, useSquash ? h / squash : h)
+      target.restore()
+    }
+    /* One band mask: a hat in the normalised distance u, 0 at the centre and 1 at the sharp
+       boundary. The band draws the hats straight (u is the elliptical distance); the axial
+       path mirrors each about the axis, which is the same function written in gradient
+       offsets. */
+    const paintBokehMask = (target, spec, w, h, extent, squash, band) => {
       const K = BOKEH_STEPS
       const value = (u) => Math.max(0, Math.min(1,
         band === 0 ? 1 - K * u : 1 - K * Math.abs(u - band / K)))
@@ -2758,42 +2791,26 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         : [(band - 1) / K, band / K, Math.min(1, (band + 1) / K)]
       const stops = []
       for (const u of us) {
-        if (spec.radial) stops.push([u, value(u)])
+        if (spec.band) stops.push([u, value(u)])
         else {
           stops.push([(1 - u) / 2, value(u)])
           stops.push([(1 + u) / 2, value(u)])
         }
       }
       stops.sort((a, b) => a[0] - b[0])
-      const g = spec.radial
-        ? target.createRadialGradient(spec.x, spec.y, 0, spec.x, spec.y, extent)
-        : target.createLinearGradient(spec.x - extent, 0, spec.x + extent, 0)
-      for (const stop of stops) {
-        g.addColorStop(Math.max(0, Math.min(1, stop[0])), 'rgba(0,0,0,' + stop[1] + ')')
-      }
-      return g
+      paintBokehGradient(target, spec, w, h, extent, squash, stops)
     }
     /* The TOTAL defocus coverage, 1 - m_sharp, used for the single carve. m_sharp is the
        sharp knot clamp(K*u - (K-1), 0, 1), so the coverage is 1 up to u = (K-1)/K and ramps
        to 0 at the sharp boundary. For the axial axis the same function is mirrored, which
        in gradient offsets is just the two ends of the span. */
-    const contourBokehCoverage = (target, spec, w, h, extent) => {
+    const paintBokehCoverage = (target, spec, w, h, extent, squash) => {
       const last = (BOKEH_STEPS - 1) / BOKEH_STEPS
-      const g = spec.radial
-        ? target.createRadialGradient(spec.x, spec.y, 0, spec.x, spec.y, extent)
-        : target.createLinearGradient(spec.x - extent, 0, spec.x + extent, 0)
-      if (spec.radial) {
-        g.addColorStop(0, 'rgba(0,0,0,1)')
-        g.addColorStop(last, 'rgba(0,0,0,1)')
-        g.addColorStop(1, 'rgba(0,0,0,0)')
-      } else {
-        const edge = (1 - last) / 2
-        g.addColorStop(0, 'rgba(0,0,0,0)')
-        g.addColorStop(edge, 'rgba(0,0,0,1)')
-        g.addColorStop(1 - edge, 'rgba(0,0,0,1)')
-        g.addColorStop(1, 'rgba(0,0,0,0)')
-      }
-      return g
+      const edge = (1 - last) / 2
+      const stops = spec.band
+        ? [[0, 1], [last, 1], [1, 0]]
+        : [[0, 0], [edge, 1], [1 - edge, 1], [1, 0]]
+      paintBokehGradient(target, spec, w, h, extent, squash, stops)
     }
     const contourBokehLevel = () => {
       if (!isEnabled() || !isContourOn() || bokehReducedTransparency()) return null
@@ -2807,18 +2824,27 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       const spec = contourBokehAxis(w, h)
       const extent = contourBokehExtent(cfg, spec, w, h)
       if (!(extent > 1)) return
+      const squash = contourBokehSquash(spec, w, h)
       const wash = Math.min(0.9, Math.max(0, readBokehFade()))
       const src = contourBokehSurface(0, w, h, scale)
       if (src === null) return
       /* The copy has to be taken FIRST: the sheet is carved away below. */
       src.drawImage(contourLineCv, 0, 0, w, h)
 
+      /* DevTools readout, written only when it changes: which of the two shapes the pass
+         actually used, so "the hero page looks like the axial one" can be settled by
+         inspecting the page instead of by guessing at the phase. */
+      const mode = spec.band ? 'band' : 'axis'
+      if (mode !== contourBokehModeAttr) {
+        contourBokehModeAttr = mode
+        document.body.setAttribute?.('data-endfield-bokeh-mode', mode)
+      }
+
       /* ONE carve for the whole defocus zone, by the total coverage. Doing it per band
          inside the loop is what left a crisp core behind wherever two hats overlapped. */
       ctx.save()
       ctx.globalCompositeOperation = 'destination-out'
-      ctx.fillStyle = contourBokehCoverage(ctx, spec, w, h, extent)
-      ctx.fillRect(0, 0, w, h)
+      paintBokehCoverage(ctx, spec, w, h, extent, squash)
       ctx.restore()
 
       for (let band = 0; band < BOKEH_STEPS; band++) {
@@ -2833,8 +2859,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         actx.drawImage(contourBokehSurfaces[0].cv, 0, 0, w, h)
         if ('filter' in actx) actx.filter = 'none'
         actx.globalCompositeOperation = 'destination-in'
-        actx.fillStyle = contourBokehMask(actx, spec, w, h, extent, band)
-        actx.fillRect(0, 0, w, h)
+        paintBokehMask(actx, spec, w, h, extent, squash, band)
         actx.globalCompositeOperation = 'source-over'
 
         /* Additive, because the composite has to stay the linear mixture of the bands.
@@ -5767,6 +5792,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         // the same way the frost attribute does.
         document.body.removeAttribute?.(BOKEH_ATTR)
         document.body.removeAttribute?.(BOKEH_WASH_ATTR)
+        document.body.removeAttribute?.('data-endfield-bokeh-mode')
+        contourBokehModeAttr = null
       }
       // The plate is styled by the theme stylesheet just torn down — an orphaned
       // plate would sit there as an unstyled black-less div, so drop it too.
