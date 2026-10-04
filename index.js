@@ -32,14 +32,14 @@
  *     (`<profile>/cordis.patch.yml`) through `ctx.configEditor`.
  *   - The settings namespace of a plugin is therefore the PROFILE ENTRY ID —
  *     the `id` of the row this package's `cordis.patch.yml` inserts
- *     (`theme-endfield`), NOT the old namespace string. That id is
+ *     (`theme-endfield-re`), NOT the old namespace string. That id is
  *     SETTINGS_ENTRY below; the browser half reads/writes it through the
  *     `configForms` client service.
  *   - Only schema fields marked `.volatile()` are user-editable, which is why
  *     every field of the exported `Config` below carries `.volatile()`.
  *
  * The browser half (client.js) reaches the same entry over the
- * `configForms.get('theme-endfield')` mirror and live-reacts to changes with
+ * `configForms.get('theme-endfield-re')` mirror and live-reacts to changes with
  * the form's subscription (and still falls back to the pre-0.1.7
  * `ctx.settingsScope` seam on older hosts).
  *
@@ -72,11 +72,11 @@ const NAME = 'dsh-theme-endfield';
 
 /**
  * DSH 0.1.7-rc.1 settings namespace: the profile entry id of this plugin's row
- * (cordis.patch.yml: `id: theme-endfield`). `ctx.settings.describe()` keys every
+ * (cordis.patch.yml: `id: theme-endfield-re`). `ctx.settings.describe()` keys every
  * form by `entry.options.id`, and the browser's `configForms.get(ns)` mirrors
  * the same string, so this constant is what ties the two halves together.
  */
-const SETTINGS_ENTRY = 'theme-endfield';
+const SETTINGS_ENTRY = 'theme-endfield-re';
 
 /**
  * Pre-0.1.7 settings namespace, registered through `ctx.settings.register` and

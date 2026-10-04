@@ -16,8 +16,14 @@
 # `name` must equal the package `name` in package.json (and therefore the
 # install directory), or the row cannot resolve. `id` is the profile entry id,
 # and it is ALSO the settings namespace the theme persists into
-# (SETTINGS_ENTRY in index.js) — it is deliberately left as `theme-endfield`
-# so settings saved under upstream keep working across the fork.
+# (SETTINGS_ENTRY in index.js).
+#
+# It carries the fork's `-re` suffix instead of upstream's bare
+# `theme-endfield` because a profile entry id has to be unique: sharing
+# upstream's id would make the two themes mutually exclusive inside one profile,
+# and it would also make this package unlistable in the skin market, whose
+# registry requires a globally unique row id. The cost is a one-time settings
+# reconfiguration for anyone migrating from upstream.
 - insert:
-    - id: theme-endfield
+    - id: theme-endfield-re
       name: 'dsh-theme-endfield-re'

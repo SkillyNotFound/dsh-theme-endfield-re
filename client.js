@@ -10,7 +10,7 @@
  *   3) 设置页「终末地主题设置」—— 设置项按四组分类（主题 / 背景 / 动画 / 娱乐），
  *      默认值 / 语义标记通过 DSH 的设置命名空间随 profile 落盘。DSH 0.1.7-rc.1 起
  *      走 client `ctx.configForms`（host index.js 导出的 volatile `Config`，命名空间
- *      = profile entry id `theme-endfield`）；旧版 DSH 回落到 `ctx.settingsScope`
+ *      = profile entry id `theme-endfield-re`）；旧版 DSH 回落到 `ctx.settingsScope`
  *      （host 的 `ctx.settings.register('dsh-theme-endfield', …)`）。文案跟随 DSH
  *      的语言设置。不再使用 localStorage：见本文 apply() 顶部
  *      「Durable preference store」注释。
@@ -18,8 +18,8 @@
  * 文档：README.md 为索引；设计语言见 docs/design-language.md，
  * 各开关行为见 docs/features.md，实现决策与实测数据见 docs/engineering-notes.md。
  *
- * 由 dsh-client-modules 以 /plugins/theme-endfield/client.js 形式加载；
- * 通过 `dsh plugin --profile web add github:ymh0000123/dsh-theme-endfield` 安装挂载。
+ * 由 dsh-client-modules 以 /plugins/theme-endfield-re/client.js 形式加载；
+ * 通过 `dsh plugin --profile web add github:SkillyNotFound/dsh-theme-endfield-re` 安装挂载。
  */
 window.__ModuleLoader__.load({
 	id: "dsh-theme-endfield",
@@ -85,7 +85,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                  mutate().
 
        The namespace is now the PROFILE ENTRY ID, not a plugin-chosen string:
-       this package's cordis.patch.yml inserts `id: theme-endfield`, and
+       this package's cordis.patch.yml inserts `id: theme-endfield-re`, and
        index.js exports that same id as SETTINGS_ENTRY. Both halves still speak
        the old namespace string for the legacy fallback and as the prefix of
        every UI key in the tables below.
@@ -117,9 +117,9 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        kept session-local so toggles still work in place but do not persist
        (there is no durable backend to persist to — and no localStorage). */
     /* DSH 0.1.7-rc.1 settings namespace: the profile entry id of this plugin's
-       row (index.js SETTINGS_ENTRY, cordis.patch.yml `id: theme-endfield`).
+       row (index.js SETTINGS_ENTRY, cordis.patch.yml `id: theme-endfield-re`).
        `configForms.get()` is keyed by exactly that string. */
-    const PREFS_ENTRY = 'theme-endfield'
+    const PREFS_ENTRY = 'theme-endfield-re'
     /* Pre-0.1.7 namespace string. Still the prefix of every UI key in the
        tables below, and the namespace the legacy `settingsScope` bind asks
        for — so it stays even though the modern transport never uses it. */
@@ -454,7 +454,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        0.1.7 the legacy service does not exist at all.
 
        A ConfigForm is keyed by the PROFILE ENTRY ID, which the patch layer
-       assigns: this package's own bundle patch inserts `theme-endfield`, but a
+       assigns: this package's own bundle patch inserts `theme-endfield-re`, but a
        hand-written insert may use the package name and the loader's tree path
        prefixes include groups with `include:`. PREFS_ENTRY_CANDIDATES lists the
        spellings this package can be installed under, in likelihood order.
@@ -1078,8 +1078,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
             dbg('DIAG5 mirror not ready. status=', mirrored && mirrored.status, 'err=', mirrored && mirrored.error)
             return
           }
-          const ours = view.namespaces.find((r) => r && r.ns === 'theme-endfield')
-          if (!ours) { dbg('DIAG5 theme-endfield NOT among', view.namespaces.length, 'namespaces'); return }
+          const ours = view.namespaces.find((r) => r && r.ns === PREFS_ENTRY)
+          if (!ours) { dbg('DIAG5 ' + PREFS_ENTRY + ' NOT among', view.namespaces.length, 'namespaces'); return }
           const keys = ['palette', 'radius', 'contour', 'loader', 'thunder']
           const rows = keys.map((k) => {
             const v = ours.value ? String(ours.value[k]) : '-'
@@ -6193,7 +6193,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
            composition without the locale plugin from "settings page in Chinese" into
            "settings page crashes", so the key is spread in only when present. */
         Object.assign(
-          { name: 'settings.section', id: 'theme-endfield', order: 35, label: () => t('nav') },
+          { name: 'settings.section', id: PREFS_ENTRY, order: 35, label: () => t('nav') },
           localeReady ? { locale: ENDFIELD_NS } : {}
         ),
         () => {

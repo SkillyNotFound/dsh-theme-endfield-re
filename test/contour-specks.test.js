@@ -73,7 +73,12 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
   /* Theme favours via settingsScope seam (not localStorage): contour ON, no
      motion, watermark/loader off, theme on. */
   ${BROWSER_SETTINGS_SCOPE_SNIPPET}
-  var __prefs=__endfieldSettingsScope({ enabled:'1', loader:'0', watermark:'0', contour:'1', contourAnim:'0' })
+  /* 中央散景 is switched OFF here on purpose. It deliberately removes ink from the
+     middle of the sheet, and this file measures the contour GENERATOR's density
+     on an 8x5 grid — with the defocus left on, its erased centre is reported as
+     "near-empty regions", which is exactly the symptom this test exists to catch
+     for the speck filter. The pass has its own verification. */
+  var __prefs=__endfieldSettingsScope({ enabled:'1', loader:'0', watermark:'0', contour:'1', contourAnim:'0', bokeh:'off', bokehWash:'off' })
   /* Capture the stitched polylines as the plugin draws them. contourDrawLines()
    emits beginPath, then moveTo + bezierCurveTo (or lineTo) per path, so this
      reconstructs each path's rendered endpoints. */

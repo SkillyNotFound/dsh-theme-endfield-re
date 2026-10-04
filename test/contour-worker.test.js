@@ -4,7 +4,13 @@ const root=path.resolve(__dirname,'..')
 ;(async()=>{
  const browser=await launch()
  try {
-  await boot(browser,root,{contour:'1',contourRenderer:'worker-webgl'},`
+  /* 中央散景 is switched OFF because this file is about the WORKER backend, and
+     selecting a defocus level deliberately makes the worker an illegal backend:
+     the pass needs the main-thread canvas, so the theme derives
+     `effectiveContourRenderer()` back to canvas and the worker is never started.
+     Left on, the wait below can never be satisfied. The defocus has its own
+     verification; see bokehNeedsMainThread in client.js. */
+  await boot(browser,root,{contour:'1',contourRenderer:'worker-webgl',bokeh:'off',bokehWash:'off'},`
     window.__workers=[];window.__frames=0;window.__painted=0;window.__live=0;
     const NativeWorker=Worker;
     window.Worker=class extends NativeWorker {

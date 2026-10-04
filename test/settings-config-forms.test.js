@@ -317,7 +317,7 @@ async function main() {
      2. A served entry is bound and its stored values are adopted.
      ======================================================================= */
   {
-    const stub = configFormsStub({ 'theme-endfield': { palette: 'wuling' } }, { served: ['theme-endfield'] })
+    const stub = configFormsStub({ 'theme-endfield-re': { palette: 'wuling' } }, { served: ['theme-endfield-re'] })
     const client = bootClient({ configForms: stub.service })
 
     if (client.classList.contains('theme-endfield-wuling')) {
@@ -332,13 +332,13 @@ async function main() {
     } else {
       radius.props.onClick()
       const w = stub.writes
-      if (w.length === 1 && w[0].ns === 'theme-endfield' && w[0].field === 'radius' && w[0].value === 'round') {
+      if (w.length === 1 && w[0].ns === 'theme-endfield-re' && w[0].field === 'radius' && w[0].value === 'round') {
         pass('panel toggle wrote radius=round through form.set on the entry namespace')
       } else {
-        fail('expected one write {ns:theme-endfield, field:radius, value:round}, saw ' + JSON.stringify(w))
+        fail('expected one write {ns:theme-endfield-re, field:radius, value:round}, saw ' + JSON.stringify(w))
       }
-      if (stub.sectionOf('theme-endfield').radius === 'round') pass('accepted write lands in the served section')
-      else fail('section did not receive the accepted write: ' + JSON.stringify(stub.sectionOf('theme-endfield')))
+      if (stub.sectionOf('theme-endfield-re').radius === 'round') pass('accepted write lands in the served section')
+      else fail('section did not receive the accepted write: ' + JSON.stringify(stub.sectionOf('theme-endfield-re')))
       await drain()
     }
   }
@@ -350,14 +350,14 @@ async function main() {
             is served, and the edit held meanwhile is replayed onto it.
      ======================================================================= */
   {
-    const stub = configFormsStub({ 'include:theme-endfield': {} }, { served: ['include:theme-endfield'] })
+    const stub = configFormsStub({ 'include:theme-endfield-re': {} }, { served: ['include:theme-endfield-re'] })
     const client = bootClient({ configForms: stub.service })
     const radius = findButton(panelButtons(client), RADIUS_RE)
     if (!radius) fail('no radius toggle button rendered (prefixed entry)')
     else {
       radius.props.onClick()
-      if (stub.writtenNamespaces().join(',') === 'include:theme-endfield') pass('bound the served prefixed entry id when that is the one the Host serves')
-      else fail('wrote to ' + JSON.stringify(stub.writtenNamespaces()) + ' instead of include:theme-endfield')
+      if (stub.writtenNamespaces().join(',') === 'include:theme-endfield-re') pass('bound the served prefixed entry id when that is the one the Host serves')
+      else fail('wrote to ' + JSON.stringify(stub.writtenNamespaces()) + ' instead of include:theme-endfield-re')
       await drain()
     }
   }
@@ -371,9 +371,9 @@ async function main() {
       if (stub.writes.length === 0) pass('edit stayed held while only the wrong spelling was bound')
       else fail('wrote through an unserved spelling: ' + JSON.stringify(stub.writes))
 
-      stub.serve('include:theme-endfield')
+      stub.serve('include:theme-endfield-re')
       await drain()
-      if (stub.writtenNamespaces().join(',') === 'include:theme-endfield' && stub.sectionOf('include:theme-endfield').radius === 'round') {
+      if (stub.writtenNamespaces().join(',') === 'include:theme-endfield-re' && stub.sectionOf('include:theme-endfield-re').radius === 'round') {
         pass('re-selected the served spelling and replayed the held edit onto it')
       } else {
         fail('did not move to the served spelling: writes=' + JSON.stringify(stub.writes))
@@ -386,7 +386,7 @@ async function main() {
         and replayed on the next snapshot replacement.
      ======================================================================= */
   {
-    const stub = configFormsStub({}, { served: ['theme-endfield'], accept: () => false })
+    const stub = configFormsStub({}, { served: ['theme-endfield-re'], accept: () => false })
     const client = bootClient({ configForms: stub.service })
     const radius = findButton(panelButtons(client), RADIUS_RE)
     if (!radius) fail('no radius toggle button rendered (refusal case)')
@@ -395,16 +395,16 @@ async function main() {
       await drain() // the refusal settles in a microtask; the edit must be held by then
       if (stub.writes.length === 1) pass('refused write was issued once')
       else fail('expected exactly one attempted write, saw ' + JSON.stringify(stub.writes))
-      if (stub.sectionOf('theme-endfield').radius !== 'round') pass('refused write did not change the served section')
+      if (stub.sectionOf('theme-endfield-re').radius !== 'round') pass('refused write did not change the served section')
       else fail('a refused write changed the section — the fake is not modelling refusal')
 
       stub.setAccept(() => true)
-      stub.touch('theme-endfield') // the Host document was rewritten; the mirror reloads
+      stub.touch('theme-endfield-re') // the Host document was rewritten; the mirror reloads
       await drain()
-      if (stub.writes.length >= 2 && stub.sectionOf('theme-endfield').radius === 'round') {
+      if (stub.writes.length >= 2 && stub.sectionOf('theme-endfield-re').radius === 'round') {
         pass('held edit was replayed after the refusal cleared')
       } else {
-        fail('held edit was never replayed: writes=' + JSON.stringify(stub.writes) + ' section=' + JSON.stringify(stub.sectionOf('theme-endfield')))
+        fail('held edit was never replayed: writes=' + JSON.stringify(stub.writes) + ' section=' + JSON.stringify(stub.sectionOf('theme-endfield-re')))
       }
     }
   }
@@ -423,10 +423,10 @@ async function main() {
       if (stub.writes.length === 0) pass('nothing reached the transport while the entry was unserved')
       else fail('wrote before the entry was served: ' + JSON.stringify(stub.writes))
 
-      stub.serve('theme-endfield')
+      stub.serve('theme-endfield-re')
       client.flush()
       await drain()
-      if (stub.writes.length >= 1 && stub.sectionOf('theme-endfield').radius === 'round') {
+      if (stub.writes.length >= 1 && stub.sectionOf('theme-endfield-re').radius === 'round') {
         pass('held edit was replayed once the entry became served')
       } else {
         fail('held edit never replayed after serve(): writes=' + JSON.stringify(stub.writes))
@@ -439,7 +439,7 @@ async function main() {
         and the theme stays on page-local values.
      ======================================================================= */
   {
-    const stub = configFormsStub({}, { served: ['theme-endfield'], mode: 'memory' })
+    const stub = configFormsStub({}, { served: ['theme-endfield-re'], mode: 'memory' })
     const client = bootClient({ configForms: stub.service })
     const radius = findButton(panelButtons(client), RADIUS_RE)
     if (!radius) fail('no radius toggle button rendered (memory case)')
@@ -456,13 +456,13 @@ async function main() {
      7. Teardown releases the subscription of the shared, provider-owned form.
      ======================================================================= */
   {
-    const stub = configFormsStub({}, { served: ['theme-endfield'] })
+    const stub = configFormsStub({}, { served: ['theme-endfield-re'] })
     const client = bootClient({ configForms: stub.service })
     if (stub.unsubscribed.length === 0) pass('subscription stays live while the run is mounted')
     else fail('subscription was disposed before teardown: ' + JSON.stringify(stub.unsubscribed))
 
     client.disposeAll()
-    if (stub.unsubscribed.indexOf('theme-endfield') >= 0) pass('teardown unsubscribed the configForms listener')
+    if (stub.unsubscribed.indexOf('theme-endfield-re') >= 0) pass('teardown unsubscribed the configForms listener')
     else fail('teardown left the configForms subscription behind: ' + JSON.stringify(stub.unsubscribed))
   }
 
@@ -481,10 +481,10 @@ async function main() {
       if (stub.writes.length === 0) pass('silent-transition case: edit held while unserved')
       else fail('wrote before the entry was served: ' + JSON.stringify(stub.writes))
 
-      stub.serve('theme-endfield') // served now, and NOTHING is notified
+      stub.serve('theme-endfield-re') // served now, and NOTHING is notified
       client.flush()               // only the settle watch can notice
       await drain()
-      if (stub.writes.length >= 1 && stub.sectionOf('theme-endfield').radius === 'round') {
+      if (stub.writes.length >= 1 && stub.sectionOf('theme-endfield-re').radius === 'round') {
         pass('settle watch caught the silent ready transition and replayed the held edit')
       } else {
         fail('silent ready transition was missed: writes=' + JSON.stringify(stub.writes))
@@ -506,10 +506,10 @@ async function main() {
     if (!radius) fail('no radius toggle button rendered (silent re-selection case)')
     else {
       radius.props.onClick()
-      stub.serve('include:theme-endfield') // served, silent, different spelling
+      stub.serve('include:theme-endfield-re') // served, silent, different spelling
       client.flush()
       await drain()
-      if (stub.writtenNamespaces().join(',') === 'include:theme-endfield' && stub.sectionOf('include:theme-endfield').radius === 'round') {
+      if (stub.writtenNamespaces().join(',') === 'include:theme-endfield-re' && stub.sectionOf('include:theme-endfield-re').radius === 'round') {
         pass('settle watch re-selected a silently served spelling and replayed the held edit')
       } else {
         fail('settle watch did not re-select the silently served spelling: writes=' + JSON.stringify(stub.writes))
@@ -520,10 +520,10 @@ async function main() {
   /* =======================================================================
      10. REGRESSION — the real boot window. This is the live log:
 
-           bound configForms ns= theme-endfield ; initial status= loading
+           bound configForms ns= theme-endfield-re ; initial status= loading
              writable= false mode= host valueKeys= 0
            ...user flips a switch...
-           commit palette = wuling via configForms theme-endfield status= ready
+           commit palette = wuling via configForms theme-endfield-re status= ready
 
          The section arrives AFTER the bind, as ONE `loading -> ready`
          subscription event. `prefsOnScopeChange` used to early-return on
@@ -539,13 +539,13 @@ async function main() {
      ======================================================================= */
   {
     const stub = configFormsStub(
-      { 'theme-endfield': {} },
-      { served: [], loading: ['theme-endfield'] },
+      { 'theme-endfield-re': {} },
+      { served: [], loading: ['theme-endfield-re'] },
     )
     const client = bootClient({ configForms: stub.service })
 
     // Boot really is in the loading window: no value, not writable.
-    const bootSnap = stub.service.get('theme-endfield').getSnapshot()
+    const bootSnap = stub.service.get('theme-endfield-re').getSnapshot()
     const bound = (stub.writes.length === 0)
     if (bootSnap.status === 'loading' && bootSnap.writable === false && bound) {
       pass("boot bound the entry while it was still 'loading' with no durable write")
@@ -570,14 +570,14 @@ async function main() {
       await drain()
 
       // Now the describe view arrives: loading -> ready, one notified event.
-      stub.settle('theme-endfield')
+      stub.settle('theme-endfield-re')
       await drain()
 
-      if (stub.sectionOf('theme-endfield').radius === 'round') {
+      if (stub.sectionOf('theme-endfield-re').radius === 'round') {
         pass('loading -> ready transition replayed the held edit onto the served section')
       } else {
         fail('loading -> ready transition did NOT replay the held edit: section='
-          + JSON.stringify(stub.sectionOf('theme-endfield')) + ' writes=' + JSON.stringify(stub.writes))
+          + JSON.stringify(stub.sectionOf('theme-endfield-re')) + ' writes=' + JSON.stringify(stub.writes))
       }
 
       // And the panel must now REFLECT the settled section — the actual
@@ -614,8 +614,8 @@ async function main() {
      ======================================================================= */
   {
     const stub = configFormsStub(
-      { 'theme-endfield': { palette: 'wuling', radius: 'round', thunder: '1' } },
-      { served: [], loading: ['theme-endfield'] },
+      { 'theme-endfield-re': { palette: 'wuling', radius: 'round', thunder: '1' } },
+      { served: [], loading: ['theme-endfield-re'] },
     )
     const client = bootClient({ configForms: stub.service })
     if (stub.writes.length !== 0) fail('read-only boot wrote to the transport: ' + JSON.stringify(stub.writes))
@@ -631,7 +631,7 @@ async function main() {
 
     // The describe view lands. No flush(): the settle watch is the fallback and
     // must not be allowed to stand in for the panel's own re-sync.
-    stub.settle('theme-endfield')
+    stub.settle('theme-endfield-re')
     await drain()
 
     // Read the hook slots directly first: this is the rawest statement of the
@@ -695,14 +695,14 @@ async function main() {
      ======================================================================= */
   {
     const stub = configFormsStub(
-      { 'theme-endfield': { palette: 'wuling', radius: 'round' } },
-      { served: [], loading: ['theme-endfield'] },
+      { 'theme-endfield-re': { palette: 'wuling', radius: 'round' } },
+      { served: [], loading: ['theme-endfield-re'] },
     )
     const client = bootClient({ configForms: stub.service })
 
     // The section lands BEFORE the panel is ever rendered, and no further
     // snapshot is emitted after this one.
-    stub.settle('theme-endfield')
+    stub.settle('theme-endfield-re')
     await drain()
 
     // Only now does the settings page mount (the user opens 设置).
@@ -747,7 +747,7 @@ async function main() {
   {
     // The Host holds palette=wuling and radius=round; the panel is rendered while
     // the section is still in flight, so its useState slots captured the defaults.
-    const stub = configFormsStub({ 'theme-endfield': { palette: 'wuling', radius: 'round' } }, { served: ['theme-endfield'], loading: ['theme-endfield'] })
+    const stub = configFormsStub({ 'theme-endfield-re': { palette: 'wuling', radius: 'round' } }, { served: ['theme-endfield-re'], loading: ['theme-endfield-re'] })
 
     // Render the panel while loading, so its state seeds from the schema default.
     const client = bootClient({ configForms: stub.service })
@@ -765,7 +765,7 @@ async function main() {
       // Now the Host serves the stored value. No re-sync pass has run for the
       // panel yet (the test has not driven the effect), which is the window the
       // bug lived in: the DOM still reflects the default.
-      stub.settle('theme-endfield')
+      stub.settle('theme-endfield-re')
       await drain()
 
       toggle.props.onClick()
@@ -793,12 +793,12 @@ async function main() {
      from a default. */
   {
     const stub = configFormsStub(
-      { 'theme-endfield': { enabled: '0', watermark: '0', loader: '1', radius: 'round' } },
-      { served: ['theme-endfield'], loading: ['theme-endfield'] }
+      { 'theme-endfield-re': { enabled: '0', watermark: '0', loader: '1', radius: 'round' } },
+      { served: ['theme-endfield-re'], loading: ['theme-endfield-re'] }
     )
     const client = bootClient({ configForms: stub.service })
 
-    stub.settle('theme-endfield')
+    stub.settle('theme-endfield-re')
     await drain()
 
     /* Locate each row by the FIELD IT WRITES rather than by its rendered label.

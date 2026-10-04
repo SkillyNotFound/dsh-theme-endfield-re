@@ -36,6 +36,7 @@
  * Usage: node test/settings-config-fallback.test.js
  */
 'use strict'
+const fs = require('fs')
 const path = require('path')
 
 const HOST = require(path.join(__dirname, '..', 'index.js'))
@@ -216,11 +217,17 @@ if (HOST.Config === undefined) {
   }
 }
 
-/* A form under another name is the same bug as no form at all. */
-if (HOST.SETTINGS_ENTRY === 'theme-endfield') {
-  pass('SETTINGS_ENTRY is the profile entry id cordis.patch.yml installs')
+/* A form under another name is the same bug as no form at all, so the expected
+   value is read from the patch instead of written down here: the bundle row id
+   IS the namespace, and a rename must not be able to leave this assertion
+   pointing at the previous one. */
+const PATCH_ROW_ID = (/^\s*-\s*id:\s*(\S+)\s*$/m.exec(
+  fs.readFileSync(path.join(__dirname, '..', 'cordis.patch.yml'), 'utf8')
+) || [])[1]
+if (PATCH_ROW_ID !== undefined && HOST.SETTINGS_ENTRY === PATCH_ROW_ID) {
+  pass('SETTINGS_ENTRY is the profile entry id cordis.patch.yml installs (' + PATCH_ROW_ID + ')')
 } else {
-  fail('SETTINGS_ENTRY is ' + JSON.stringify(HOST.SETTINGS_ENTRY) + ', expected "theme-endfield"')
+  fail('SETTINGS_ENTRY is ' + JSON.stringify(HOST.SETTINGS_ENTRY) + ', expected the cordis.patch.yml row id ' + JSON.stringify(PATCH_ROW_ID))
 }
 
 console.log('')
