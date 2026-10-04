@@ -1,0 +1,6 @@
+# The theme's bundles are LF-only. Git for Windows defaults to core.autocrlf=true,
+# which turns a fresh clone into CRLF — the committed bundles would then differ
+# from the bytes the test suite runs against and from the kernel the generated
+# contour worker is embedded from. Upstream 1.1.5 shipped no .gitattributes;
+# this fork adds one and disables every EOL conversion.
+* -text

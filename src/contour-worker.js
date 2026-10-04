@@ -7,6 +7,21 @@ const CONTOUR_MIN_CROSSINGS = 3
 let contourSeed = 1, contourField = null, contourGeom = null, contourPaths = []
 let contourLineCv = null, canvas = null, painter = null, stroke = 'rgba(0,0,0,0)', rasterizer = null
 const contourStroke = () => stroke
+/* The centre-defocus pass (中央散景) is MAIN-THREAD ONLY, so it is a no-op here.
+ *
+ * contourDrawLines() is extracted verbatim from client.js by
+ * scripts/build-contour-worker.js, and the fork's version calls
+ * contourBokehPass(). This backend cannot run that pass in principle: the
+ * rasteriser is either the WebGL2 shim (src/contour-webgl.js), which exposes no
+ * filter, no globalCompositeOperation, no gradients and no drawImage, or an
+ * OffscreenCanvas the page has no way to composite onto.
+ *
+ * Defining it as a no-op is what keeps the sheet SHARP on this backend — the
+ * documented behaviour — instead of throwing a ReferenceError inside the worker.
+ * The host also never starts the worker while a defocus level is selected (see
+ * bokehNeedsMainThread in client.js), so this is a belt-and-braces definition
+ * rather than a live path. */
+const contourBokehPass = () => {}
 /* CONTOUR_KERNEL */
 /* CONTOUR_WEBGL */
 self.onmessage = ({data}) => {

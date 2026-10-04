@@ -59,6 +59,9 @@ const FIELD_DEFAULTS = {
   contourTrail: '0',        // optional mouse deformation, default off
   contourRenderer: 'canvas',
   contourScrollPause: '1',
+  /* 中央散景 — fork addition. Same defaults as index.js FIELD_DEFAULTS. */
+  bokeh: 'standard',
+  bokehWash: 'standard',
   watermark: '1',
   watermarkPersist: '0',
   loader: '0',
@@ -94,6 +97,8 @@ const KEY_TO_FIELD = {
   'dsh-theme-endfield-contour-renderer': 'contourRenderer',
   contourRenderer: 'contourRenderer',
   'dsh-theme-endfield-contour-scroll-pause': 'contourScrollPause',
+  'dsh-theme-endfield-bokeh': 'bokeh',
+  'dsh-theme-endfield-bokeh-wash': 'bokehWash',
   'dsh-theme-endfield-contour-trail': 'contourTrail',
   'dsh-theme-endfield-watermark': 'watermark',
   'dsh-theme-endfield-watermark-persist': 'watermarkPersist',

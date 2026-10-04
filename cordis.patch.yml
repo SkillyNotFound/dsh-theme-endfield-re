@@ -1,17 +1,23 @@
-# dsh-theme-endfield bundle patch
+# dsh-theme-endfield-re bundle patch
 #
 # This file is the `dsh.bundle.patch` layer of the package: when installed
 # through the official CLI —
 #
-#   dsh plugin --profile web add github:ymh0000123/dsh-theme-endfield
+#   dsh plugin --profile web add github:SkillyNotFound/dsh-theme-endfield-re
 #
 # — the command reconciles `dsh.profile.bundles` against installed packages
-# and, seeing this declaration, appends `dsh-theme-endfield` to the bundle
+# and, seeing this declaration, appends `dsh-theme-endfield-re` to the bundle
 # stack. Profile boot then merges THIS patch (a single `insert` of the plugin
 # row) exactly like a manual cordis.patch.yml mount line. No profile file
 # edits needed — one command installs and mounts. The same row is also the
 # `dsh.client` browser-roster entry the web modules half scans for the client
 # bundle (exports["./client"] -> client.js).
+#
+# `name` must equal the package `name` in package.json (and therefore the
+# install directory), or the row cannot resolve. `id` is the profile entry id,
+# and it is ALSO the settings namespace the theme persists into
+# (SETTINGS_ENTRY in index.js) — it is deliberately left as `theme-endfield`
+# so settings saved under upstream keep working across the fork.
 - insert:
     - id: theme-endfield
-      name: 'dsh-theme-endfield'
+      name: 'dsh-theme-endfield-re'

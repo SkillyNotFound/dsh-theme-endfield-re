@@ -103,6 +103,11 @@ bezierCtx.bezierCurveTo=function(c1x,c1y,c2x,c2y,x,y){
   bezierCurrent=[x,y]
   return originalBezierCurveTo.call(this,c1x,c1y,c2x,c2y,x,y)
 }
+// contourDrawLines() calls the centre-defocus pass (中央散景), which is
+// main-thread only and needs a real compositing surface. Same no-op the worker
+// template defines (src/contour-worker.js): the pass is skipped, the stroke
+// geometry this test measures is unaffected.
+const contourBokehPass=()=>{}
 ${drawLines}
 
 /* contourBuild() now sets contourGeom itself (it has to: the speck filter inside

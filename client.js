@@ -129,6 +129,17 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       palette: 'valley',
       radius: 'square',
       glass: 'off',
+      /* 中央散景 (contour centre bokeh). Two named strengths rather than raw pixel
+         values, for the same reason the frost layer uses names: the interesting
+         numbers are not independent — the ellipse has to grow with the blur or the
+         falloff stops reading as out-of-focus, and the mask core has to rise with
+         it or the softened lines simply look dimmer. Shipping the pairing as one
+         literal keeps the four levels coherent and keeps the durable schema a
+         string enum, which is all the settings transport can store.
+         'off' is a REAL level, not just a hidden state: it removes the layer, so a
+         page with the effect disabled composites nothing at all. */
+      bokeh: 'standard',
+      bokehWash: 'standard',
       contour: '0',
       contourAnim: '1',
       contourFps: '24',
@@ -196,6 +207,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       'dsh-theme-endfield-palette': 'palette',
       'dsh-theme-endfield-radius': 'radius',
       'dsh-theme-endfield-glass': 'glass',
+      'dsh-theme-endfield-bokeh': 'bokeh',
+      'dsh-theme-endfield-bokeh-wash': 'bokehWash',
       'dsh-theme-endfield-contour': 'contour',
       'dsh-theme-endfield-contour-anim': 'contourAnim',
       'dsh-theme-endfield-contour-fps': 'contourFps',
@@ -1151,6 +1164,60 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       if (isEnabled() && value !== 'off') document.body.setAttribute?.('data-endfield-glass', value)
       else document.body.removeAttribute?.('data-endfield-glass')
     }
+    /* ---------- 中央散景 (contour centre bokeh) ----------
+       Same one-attribute pattern as the frost layer above: <body> carries the
+       chosen level and the stylesheet owns every number, so picking a level is an
+       attribute flip with no repaint and no JS layout work.
+
+       TWO levels, because there are two things the user wants to steer
+       independently: how blurred the middle is, and how far the sheet is faded
+       there. The wash is a MODIFIER of the layer rather than a layer of its own —
+       carrying it with the blur off would paint a dim ellipse over a sharp sheet,
+       which is not a state the panel offers — so it is only written while the
+       blur level is live.
+
+       Both readers run through the same whitelist as the frost row: an
+       unrecognised stored value (schema rejects, hand-edited YAML, a level removed
+       in a later version) falls back to the shipped default instead of silently
+       turning the effect off. */
+    const BOKEH_KEY = 'dsh-theme-endfield-bokeh'
+    const BOKEH_WASH_KEY = 'dsh-theme-endfield-bokeh-wash'
+    const BOKEH_OPTIONS = ['off', 'subtle', 'standard', 'strong']
+    const BOKEH_ATTR = 'data-endfield-bokeh'
+    const BOKEH_WASH_ATTR = 'data-endfield-bokeh-wash'
+    const readBokeh = () => {
+      const value = prefsGet(BOKEH_KEY)
+      return BOKEH_OPTIONS.includes(value) ? value : 'standard'
+    }
+    const readBokehWash = () => {
+      const value = prefsGet(BOKEH_WASH_KEY)
+      return BOKEH_OPTIONS.includes(value) ? value : 'standard'
+    }
+    const syncBokeh = () => {
+      if (typeof document === 'undefined' || document.body === null) return
+      const level = readBokeh()
+      const wash = readBokehWash()
+      const live = isEnabled() && level !== 'off'
+      /* The defocus is now painted INTO the sheet's canvas, so these attributes drive no
+         styling at all — they are the state readout a DevTools inspection needs, and the
+         thing that made "is this build live?" answerable while the layer was still a CSS
+         filter. Kept deliberately, but they are not the mechanism. */
+      if (live) {
+        document.body.setAttribute?.(BOKEH_ATTR, level)
+      } else {
+        document.body.removeAttribute?.(BOKEH_ATTR)
+      }
+      if (live && wash !== 'off') document.body.setAttribute?.(BOKEH_WASH_ATTR, wash)
+      else document.body.removeAttribute?.(BOKEH_WASH_ATTR)
+      /* Changing a level is no longer a style flip: the rasteriser has to repaint. The
+         geometry (contourPaths) is untouched by the defocus, so a redraw is enough. */
+      /* A level change can also change which backend is legal (see bokehNeedsMainThread).
+         Reconciled through the late-bound hook, not syncContour() directly: this runs
+         from the settings panel, which can mount before the contour module has wired
+         itself, and the hook is a no-op until it has. */
+      contourSyncHook()
+      if (contourWrap !== null) contourRefresh(false)
+    }
     const syncRadiusMode = () => {
       // The bundle can run before <body> exists (see runLoader's DOMContentLoaded
       // deferral for the same window); a classList touch on null would throw and
@@ -1237,14 +1304,44 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       return null
     }
+    /* TWO generations of the hero headline have to be understood here, because the
+       mark is only ever placed by MEASURING it (see positionWatermark):
+         <= 0.1.x        the headline TEXT span carried the class '*_headlineText'
+         >= 0.2.0-rc.2   HeroShell renamed it: the flex ROW is '*_headline' and the
+                         text itself is an unclassed <span> inside '*_titleGroup'.
+       The old single-selector lookup therefore matched NOTHING on the current host,
+       positionWatermark() returned before writing top/transform, and the wordmark
+       silently fell back to its static position — below #root, i.e. off the bottom
+       of a 100%-tall body — while its horizontal centring stayed on the viewport
+       instead of the conversation column. That is the reported "it dropped down,
+       is not centred and does not line up left/right".
+       '_headline' must NOT be matched document-wide: ContextMeter has its own
+       '*_headline' in the details panel and would win the first-visible test. The
+       search is scoped to the hero column — the same
+       [class$='_root'][data-phase='hero'] hook isHeroVisible() gates on — with the
+       document as the fallback so an older host still resolves. */
     const findVisibleHeadline = () => {
       if (typeof document === 'undefined') return null
-      const all = document.querySelectorAll('[class$="_headlineText"]')
+      const hero = document.querySelector('[class$="_root"][data-phase="hero"]')
+      const scope = hero !== null ? hero : document
+      const all = scope.querySelectorAll('[class$="_headlineText"], [class$="_headline"]')
       for (const h of all) {
         const r = h.getBoundingClientRect()
         if (r.width > 0 && r.height > 0) return h
       }
       return null
+    }
+    /* Last-resort anchor for the hero placement: the hero column itself. Used only
+       when no headline has rendered yet (or a future rename lands), so the mark is
+       still measured onto the conversation column instead of escaping to the
+       viewport-bottom static position described above. The rAF loop re-runs this
+       every frame, so the real headline takes over as soon as it exists. */
+    const findHeroColumn = () => {
+      if (typeof document === 'undefined') return null
+      const hero = document.querySelector('[class$="_root"][data-phase="hero"]')
+      if (hero === null) return null
+      const r = hero.getBoundingClientRect()
+      return (r.width > 0 && r.height > 0) ? hero : null
     }
     let watermarkEl = null
     let watermarkRaf = null
@@ -1276,7 +1373,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         // Centred in its own positioned parent — no per-frame measurement needed.
         return
       }
-      const headline = findVisibleHeadline()
+      const headline = findVisibleHeadline() || findHeroColumn()
       if (!headline) return
       const r = headline.getBoundingClientRect()
       if (r.width === 0 || r.height === 0) return
@@ -2440,11 +2537,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
          gives each join one shared tangent. The handle cap prevents overshoot at
          narrow saddles while the larger tangent factor removes long rounded-polygon
          bends that remain visible with midpoint quadratics. */
-      const drawSmoothPath = (source) => {
+      const drawSmoothPath = (target, source) => {
         const count = source.length / 2
         if (count < 3) {
-          ctx.moveTo(source[0], source[1])
-          for (let k = 2; k < source.length; k += 2) ctx.lineTo(source[k], source[k + 1])
+          target.moveTo(source[0], source[1])
+          for (let k = 2; k < source.length; k += 2) target.lineTo(source[k], source[k + 1])
           return
         }
         const closed = (source[0] - source[source.length - 2]) ** 2
@@ -2488,14 +2585,14 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           }
           return [tx, ty]
         }
-        ctx.moveTo(source[0], source[1])
+        target.moveTo(source[0], source[1])
         const segments = closed ? limit : limit - 1
         for (let k = 0; k < segments; k++) {
           const start = point(k)
           const end = point(k + 1)
           const startTangent = tangent(k)
           const endTangent = tangent(k + 1)
-          ctx.bezierCurveTo(
+          target.bezierCurveTo(
             start[0] + startTangent[0], start[1] + startTangent[1],
             end[0] - endTangent[0], end[1] - endTangent[1],
             end[0], end[1],
@@ -2506,16 +2603,252 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
            no geometry — but without it the canvas treats the path as open and butts
            two caps together at the seam instead of joining them, which is defect (2)
            of issue #3. contour-cusps.test.js guards this. */
-        if (closed) ctx.closePath()
+        if (closed) target.closePath()
       }
       ctx.beginPath()
-      for (let i = 0; i < contourPaths.length; i++) drawSmoothPath(smoothPath(contourPaths[i]))
+      for (let i = 0; i < contourPaths.length; i++) drawSmoothPath(ctx, smoothPath(contourPaths[i]))
       ctx.stroke()
+      /* The centre defocus repaints the same geometry through a wider, blurred brush; it
+         needs the two path helpers, so they are handed over rather than captured. */
+      contourBokehPass(ctx, w, h, scale)
+    }
+
+    /* ---------- contour centre defocus: a graduated, energy-conserving blur ----------
+       A defocus MOVES ink; it does not create it, and it must not leave a crisp core
+       behind. The reference supplied for this feature says both things: across its whole
+       ramp the total ink is constant to 0.1% and peak x width is constant (peak 205.3 ->
+       40.0 while width 15 -> 76.7). So a blurred line is CLEARLY FAINTER - at these radii
+       a 1px stroke at alpha A keeps A * 0.5/sqrt(0.25 + s*s) of its peak - and nothing in
+       this pass may boost it back.
+
+       THE COMPOSITION is what the earlier revisions got wrong. The wanted result is the
+       linear mixture
+
+           R = m_sharp * sharp  +  SUM over bands of  m_k * dim_k * blur_k(sharp)
+
+       where the band masks are hats in the axis distance u and partition unity exactly
+       (sum of m_k + m_sharp = 1). The shipped code instead carved the sheet once PER BAND
+       inside the same loop that added the band back, which is NOT that formula: where two
+       hats overlap at half weight it left (1-0.5)*(1-0.5) = 25% of the SHARP sheet behind
+       and attenuated the earlier band twice. The measured consequence was a residual crisp
+       core inside the blur (peak 37% higher than on the axis) plus concentric steps -
+       "the blur centre is still too bright" and the layered, jagged look.
+
+       So: carve ONCE, by the total defocus coverage 1 - m_sharp, and then add the bands on
+       top additively (source-over would compress the overlaps and stop being a mixture).
+       The composite then has the mixture's peak, which rises monotonically from the axis
+       outward, exactly like the reference's.
+
+       Cost: one blur and one draw per band per repaint. Repaints happen on resize and at
+       the animation frame rate, so with the animation off (this profile's setting) it is
+       paid once per layout. This is also why the pass needs the MAIN-THREAD rasteriser and
+       the worker is not a legal backend while a level is selected - see bokehNeedsMainThread.
+
+       The extent is measured against the geometry it actually fades over, and the radius
+       against the short side, so a sharp zone always remains inside the frame:
+         radial (hero)    -> soft * 0.5 * min(w, h)          half the short side
+         axial  (running) -> soft * (column width / 2)       the sidebar and the details
+                                                             panel stay sharp by construction
+       (An earlier revision scaled by max(w,h), which on 16:9 puts the sharp boundary
+       outside the frame and leaves nothing sharp anywhere.) */
+    const BOKEH_STEPS = 3
+    const BOKEH_LEVELS = {
+      subtle: { blur: 1.5, soft: 0.55 },
+      standard: { blur: 2.5, soft: 0.80 },
+      strong: { blur: 3.5, soft: 1.10 },
+    }
+    /* How much of the defocused ink the wash removes ON THE AXIS; each band scales that
+       down toward the sharp boundary. Expressed as alpha, so the pass never needs to know
+       the page colour, and off leaves the defocused ink at full strength. */
+    const BOKEH_FADE = { off: 0, subtle: 0.15, standard: 0.35, strong: 0.6 }
+    /* Both readers go through the whitelists that the settings rows already use, so the
+       panel and the rasteriser can never disagree about what a stored value means. */
+    const readBokehFade = () => {
+      const value = readBokehWash()
+      return Object.prototype.hasOwnProperty.call(BOKEH_FADE, value) ? BOKEH_FADE[value] : BOKEH_FADE.standard
+    }
+    const bokehReducedTransparency = () => typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-transparency: reduce)').matches
+    /* Two offscreen surfaces. Surface 0 keeps an UNTOUCHED copy of the sharp sheet,
+       because the sheet itself is carved away below and every band has to be blurred from
+       the original ink rather than from whatever is left of it. Surface 1 is cleared per
+       band and holds one blurred, masked band at a time. */
+    const contourBokehSurfaces = [{ cv: null }, { cv: null }]
+    const contourBokehSurface = (index, w, h, scale) => {
+      const state = contourBokehSurfaces[index]
+      const bw = Math.max(1, Math.round(w * scale))
+      const bh = Math.max(1, Math.round(h * scale))
+      if (state.cv === null) state.cv = document.createElement('canvas')
+      if (state.cv.width !== bw || state.cv.height !== bh) {
+        state.cv.width = bw
+        state.cv.height = bh
+      }
+      const actx = state.cv.getContext('2d')
+      if (!actx) return null
+      if (typeof actx.setTransform === 'function') {
+        actx.setTransform(1, 0, 0, 1, 0, 0)
+        actx.clearRect(0, 0, bw, bh)
+        actx.setTransform(scale, 0, 0, scale, 0, 0)
+      } else {
+        actx.clearRect(0, 0, bw, bh)
+      }
+      return actx
+    }
+    /* Which way the defocus fades. data-phase is rendered ONLY on ConversationRoot
+       (settling|hero|active) and the theme already uses that for its own hero detection,
+       so the two phases map onto it exactly:
+           hero (before a conversation starts) -> 中心散开: a radial falloff centred on the
+                                                  FRAME centre - a point, and deliberately
+                                                  not the conversation axis
+           anything else (a conversation)      -> 中轴线向两侧散开: a falloff in
+                                                  |x - axis|, peaking on the conversation
+                                                  column's centre line and easing off to
+                                                  BOTH sides
+       The column centre is used for the axis, not the frame centre, because the sidebar
+       shifts the column right of it. Falls back to the frame centre when the column is not
+       on screen (very early boot), and to the short-side scale when its width is 0. */
+    const contourBokehAxis = (w, h) => {
+      let colX = null, half = null, hero = false
+      if (typeof document !== 'undefined') {
+        const col = document.querySelector('[class$="_centerCol"], [class*="_centerCol "]')
+        if (col !== null && contourHost !== null && typeof col.getBoundingClientRect === 'function') {
+          const cr = col.getBoundingClientRect()
+          const hr = contourHost.getBoundingClientRect()
+          if (cr.width > 0 && hr.width > 0) {
+            colX = cr.left - hr.left + cr.width * 0.5
+            half = cr.width * 0.5
+          }
+        }
+        hero = document.querySelector('[class$="_root"][data-phase="hero"]') !== null
+      }
+      return {
+        radial: hero,
+        x: hero ? w * 0.5 : (colX === null ? w * 0.5 : colX),
+        y: h * 0.5,
+        half,
+      }
+    }
+    const contourBokehExtent = (cfg, spec, w, h) => (spec.radial
+      ? cfg.soft * 0.5 * Math.min(w, h)
+      : cfg.soft * (spec.half === null ? Math.min(w, h) * 0.5 : spec.half))
+    /* One band mask: a hat in the axis distance u, 0 on the axis and 1 at the sharp
+       boundary. Radial draws the hats straight; axial mirrors each about the axis, which is
+       the same function written in gradient offsets. */
+    const contourBokehMask = (target, spec, w, h, extent, band) => {
+      const K = BOKEH_STEPS
+      const value = (u) => Math.max(0, Math.min(1,
+        band === 0 ? 1 - K * u : 1 - K * Math.abs(u - band / K)))
+      const us = band === 0
+        ? [0, 1 / K]
+        : [(band - 1) / K, band / K, Math.min(1, (band + 1) / K)]
+      const stops = []
+      for (const u of us) {
+        if (spec.radial) stops.push([u, value(u)])
+        else {
+          stops.push([(1 - u) / 2, value(u)])
+          stops.push([(1 + u) / 2, value(u)])
+        }
+      }
+      stops.sort((a, b) => a[0] - b[0])
+      const g = spec.radial
+        ? target.createRadialGradient(spec.x, spec.y, 0, spec.x, spec.y, extent)
+        : target.createLinearGradient(spec.x - extent, 0, spec.x + extent, 0)
+      for (const stop of stops) {
+        g.addColorStop(Math.max(0, Math.min(1, stop[0])), 'rgba(0,0,0,' + stop[1] + ')')
+      }
+      return g
+    }
+    /* The TOTAL defocus coverage, 1 - m_sharp, used for the single carve. m_sharp is the
+       sharp knot clamp(K*u - (K-1), 0, 1), so the coverage is 1 up to u = (K-1)/K and ramps
+       to 0 at the sharp boundary. For the axial axis the same function is mirrored, which
+       in gradient offsets is just the two ends of the span. */
+    const contourBokehCoverage = (target, spec, w, h, extent) => {
+      const last = (BOKEH_STEPS - 1) / BOKEH_STEPS
+      const g = spec.radial
+        ? target.createRadialGradient(spec.x, spec.y, 0, spec.x, spec.y, extent)
+        : target.createLinearGradient(spec.x - extent, 0, spec.x + extent, 0)
+      if (spec.radial) {
+        g.addColorStop(0, 'rgba(0,0,0,1)')
+        g.addColorStop(last, 'rgba(0,0,0,1)')
+        g.addColorStop(1, 'rgba(0,0,0,0)')
+      } else {
+        const edge = (1 - last) / 2
+        g.addColorStop(0, 'rgba(0,0,0,0)')
+        g.addColorStop(edge, 'rgba(0,0,0,1)')
+        g.addColorStop(1 - edge, 'rgba(0,0,0,1)')
+        g.addColorStop(1, 'rgba(0,0,0,0)')
+      }
+      return g
+    }
+    const contourBokehLevel = () => {
+      if (!isEnabled() || !isContourOn() || bokehReducedTransparency()) return null
+      if (contourWorker !== null) return null
+      const level = readBokeh()
+      return Object.prototype.hasOwnProperty.call(BOKEH_LEVELS, level) ? BOKEH_LEVELS[level] : null
+    }
+    const contourBokehPass = (ctx, w, h, scale) => {
+      const cfg = contourBokehLevel()
+      if (cfg === null || contourLineCv === null) return
+      const spec = contourBokehAxis(w, h)
+      const extent = contourBokehExtent(cfg, spec, w, h)
+      if (!(extent > 1)) return
+      const wash = Math.min(0.9, Math.max(0, readBokehFade()))
+      const src = contourBokehSurface(0, w, h, scale)
+      if (src === null) return
+      /* The copy has to be taken FIRST: the sheet is carved away below. */
+      src.drawImage(contourLineCv, 0, 0, w, h)
+
+      /* ONE carve for the whole defocus zone, by the total coverage. Doing it per band
+         inside the loop is what left a crisp core behind wherever two hats overlapped. */
+      ctx.save()
+      ctx.globalCompositeOperation = 'destination-out'
+      ctx.fillStyle = contourBokehCoverage(ctx, spec, w, h, extent)
+      ctx.fillRect(0, 0, w, h)
+      ctx.restore()
+
+      for (let band = 0; band < BOKEH_STEPS; band++) {
+        /* 1 on the axis .. 1/K in the last band: how much blur, and how much wash. */
+        const level = 1 - band / BOKEH_STEPS
+        const dim = Math.max(0, 1 - wash * level)
+        if (dim < 0.01) continue
+        const sigma = cfg.blur * level
+        const actx = contourBokehSurface(1, w, h, scale)
+        if (actx === null) return
+        if ('filter' in actx) actx.filter = 'blur(' + sigma.toFixed(2) + 'px)'
+        actx.drawImage(contourBokehSurfaces[0].cv, 0, 0, w, h)
+        if ('filter' in actx) actx.filter = 'none'
+        actx.globalCompositeOperation = 'destination-in'
+        actx.fillStyle = contourBokehMask(actx, spec, w, h, extent, band)
+        actx.fillRect(0, 0, w, h)
+        actx.globalCompositeOperation = 'source-over'
+
+        /* Additive, because the composite has to stay the linear mixture of the bands.
+           source-over would compress the overlaps and stop being one. */
+        ctx.save()
+        ctx.globalAlpha = dim
+        ctx.globalCompositeOperation = 'lighter'
+        ctx.drawImage(contourBokehSurfaces[1].cv, 0, 0, w, h)
+        ctx.restore()
+      }
     }
 
     /* Optional worker backend. One in-flight frame and one latest pending frame. */
     const CONTOUR_RENDERER_KEY = 'dsh-theme-endfield-contour-renderer'
     const readContourRenderer = () => prefsGet(CONTOUR_RENDERER_KEY) === 'worker-webgl' ? 'worker-webgl' : 'canvas'
+
+    /* 中央散景 is a MAIN-THREAD canvas pass: it restrokes the sharp paths through a
+       wider, blurred brush on a second canvas, and the worker backend has no 2D context
+       to run that on (its WebGL shim implements stroke()/clearRect()/setTransform() and
+       nothing else — no filter, no globalCompositeOperation, no gradient, no fillRect).
+       Its copy of contourDrawLines() therefore has no defocus call at all, and
+       contourBokehLevel() refuses to run while a worker is alive. Selecting a defocus
+       level is thus also a statement about which backend is legal — and this is where
+       that is decided. The user's stored 等高线绘制 choice is left untouched: set
+       中央散景 back to 关闭 and the worker takes the sheet again on the next sync. The
+       renderer row shows the level that is actually drawing (see contourRendererHintBokeh). */
+    const bokehNeedsMainThread = () => isEnabled() && isContourOn() && readBokeh() !== 'off' && !bokehReducedTransparency()
+    const effectiveContourRenderer = () => (bokehNeedsMainThread() ? 'canvas' : readContourRenderer())
     let contourWorker = null, contourWorkerFailed = false, contourBackendChoice = 'canvas'
     const contourDisposeWorker = () => {
       const state = contourWorker
@@ -2544,7 +2877,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       catch (error) { contourWorkerFail(state, 'worker frame submission failed') }
     }
     const contourStartWorker = (canvas) => {
-      if (readContourRenderer() !== 'worker-webgl' || contourWorkerFailed) return
+      if (effectiveContourRenderer() !== 'worker-webgl' || contourWorkerFailed) return
       if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function'
         || typeof canvas.transferControlToOffscreen !== 'function') {
         contourWorkerFailed = true
@@ -2811,7 +3144,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
 
     /** Build/refresh/remove the layer to match the switches and the current page. */
     const syncContour = () => {
-      const choice = readContourRenderer()
+      const choice = effectiveContourRenderer()
       if (choice !== contourBackendChoice) {
         contourTeardown()
         contourWorkerFailed = false
@@ -2922,7 +3255,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     // Let the page observer declared above re-attach the layer as the app renders.
     contourSyncHook = syncContour
     /* BEGIN GENERATED CONTOUR WORKER */
-    const CONTOUR_WORKER_SOURCE = "/* Dedicated contour worker. Kernel is extracted from client.js by the build script.\r\n * MIT; original terrain Copyright (c) 2026 ymh0000123. */\r\nconst CONTOUR_STEP = 6, CONTOUR_LEVELS = 20, CONTOUR_SPAN = 1.45\r\nconst CONTOUR_MIN_LEN = 40, CONTOUR_MIN_RING_BOX = 21\r\nconst CONTOUR_KEEP_LEN = CONTOUR_MIN_LEN * 1.35, CONTOUR_KEEP_RING = CONTOUR_MIN_RING_BOX * 1.5\r\nconst CONTOUR_MIN_CROSSINGS = 3\r\nlet contourSeed = 1, contourField = null, contourGeom = null, contourPaths = []\r\nlet contourLineCv = null, canvas = null, painter = null, stroke = 'rgba(0,0,0,0)', rasterizer = null\r\nconst contourStroke = () => stroke\r\nconst contourRng = (seed) => {\r\n      let a = seed >>> 0\r\n      return () => {\r\n        a = (a + 0x6D2B79F5) >>> 0\r\n        let t = Math.imul(a ^ (a >>> 15), 1 | a)\r\n        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t\r\n        return ((t ^ (t >>> 14)) >>> 0) / 4294967296\r\n      }\r\n    }\nconst contourBuild = (w, h) => {\r\n      /* ACCEPT-OR-REROLL. A random layout is not automatically a GOOD layout, and\r\n         this is the concrete lesson from making the seed per-load: the old fixed\r\n         seed had silently guaranteed a well-spread field, and once real randomness\r\n         arrived, some layouts left regions with no contour lines at all. Measured on\r\n         the 8x5 coverage grid (\"near-empty\" = under 0.6% ink):\r\n             independent uniform placement   5 failures in 12 seeds (up to 3 cells)\r\n             stratified placement alone      6 failures in 24 seeds (down to 0.00%)\r\n         Stratification fixes clumping but cannot fix the real mechanism: lines\r\n         appear only where the field CROSSES one of the 21 fixed levels, so a region\r\n         that is locally flat between two levels is blank no matter how the bumps\r\n         sit. Forcing a gradient steep enough to guarantee a crossing per cell would\r\n         take ~9.5 parallel lines across the width, which reads as stripes, not\r\n         terrain -- so distorting the field is the wrong lever.\r\n         Instead the candidate layout is CHECKED against the same invariant the test\r\n         asserts, and rejected if it fails. Each attempt is cheap (one field\r\n         evaluation on a coarse grid, no extraction, no drawing) and bounded, so the\r\n         worst case is a handful of evaluations at mount/resize time only.\r\n\r\n         The two halves are BOTH load-bearing, which was verified rather than\r\n         assumed -- with the validator in place but placement reverted to uniform,\r\n         4 of 8 loads exhausted the 12-attempt cap and shipped a fallback layout\r\n         (one run in four still rendered a blank cell). Stratification is what makes\r\n         an acceptable layout the common case: mean 2.5 candidates, max 6, never at\r\n         the cap. Validation is what makes it a guarantee. */\r\n      const attempts = 32\r\n      let best = null\r\n      for (let attempt = 0; attempt < attempts; attempt++) {\r\n        const cand = contourBuildCandidate(w, h, attempt)\r\n        const score = contourCoverageScore(cand, w, h)\r\n        if (best === null || score.worst > best.score.worst) best = { cand, score }\r\n        // Comfortably above the 0.6%-ink failure line, in field terms: every cell\r\n        // must contain a spread of values wider than one level gap, so at least one\r\n        // level is guaranteed to cross it.\r\n        if (score.ok) break\r\n      }\r\n      contourField = best.cand.field\r\n      contourGeom = { w, h, cols: best.cand.cols, rows: best.cand.rows, step: CONTOUR_STEP }\r\n    }\nconst contourBuildCandidate = (w, h, salt) => {\r\n      const step = CONTOUR_STEP\r\n      const cols = Math.ceil(w / step) + 1\r\n      const rows = Math.ceil(h / step) + 1\r\n      const K = 22                       // bump count: tuned to the reference's island density\r\n      const rnd = contourRng((contourSeed + salt * 0x9E3779B1) >>> 0)\r\n      const m = Math.min(w, h)\r\n      const bx = new Float32Array(K), by = new Float32Array(K)\r\n      const ba = new Float32Array(K), bs = new Float32Array(K)\r\n      const dx = new Float32Array(K), dy = new Float32Array(K)\r\n      /* STRATIFIED placement, not independent uniform draws.\r\n\r\n         Uniform sampling clumps: measured over 12 random seeds it left up to 3\r\n         near-empty cells. Jittered grid instead -- the viewport is cut into a\r\n         near-square lattice of at least K cells and each bump is placed at a random\r\n         point inside its own cell. That keeps placement random while making a large\r\n         empty patch geometrically impossible. Cells are ordered by a Fisher-Yates\r\n         shuffle so the bump INDEX carries no positional bias: index drives\r\n         amplitude, radius and drift below, and walking cells in raster order would\r\n         correlate \"left side of the screen\" with \"first sizes drawn\".\r\n         The lattice spans the same -0.1..1.1 over-scan as before, so islands are\r\n         still cut by the viewport edges rather than all sitting fully inside. */\r\n      const gx = Math.max(1, Math.round(Math.sqrt(K * (w / Math.max(1, h)))))\r\n      const gy = Math.max(1, Math.ceil(K / gx))\r\n      const cells = []\r\n      for (let j = 0; j < gy; j++) for (let i = 0; i < gx; i++) cells.push(i + j * gx)\r\n      for (let i = cells.length - 1; i > 0; i--) {\r\n        const j = Math.floor(rnd() * (i + 1))\r\n        const t = cells[i]; cells[i] = cells[j]; cells[j] = t\r\n      }\r\n      const spanX = 1.2 * w, spanY = 1.2 * h\r\n      for (let k = 0; k < K; k++) {\r\n        const cell = cells[k % cells.length]\r\n        const ci = cell % gx\r\n        const cj = Math.floor(cell / gx)\r\n        // Random point inside this cell, in the over-scanned -0.1..1.1 space.\r\n        bx[k] = -0.1 * w + ((ci + rnd()) / gx) * spanX\r\n        by[k] = -0.1 * h + ((cj + rnd()) / gy) * spanY\r\n        // Mixed sign gives peaks AND basins; equal signs would read as one blob.\r\n        ba[k] = (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.9)\r\n        bs[k] = (0.05 + rnd() * 0.09) * m\r\n        dx[k] = rnd() * 2 - 1\r\n        dy[k] = rnd() * 2 - 1\r\n      }\r\n      /* Base undulation: three long, low-amplitude sine ridges spanning the whole\r\n         viewport. Reason this exists, from reviewing the first render: a sum of\r\n         gaussians decays to EXACTLY zero between islands, so the field there is\r\n         perfectly flat, no level ever crosses it, and the result had large blank\r\n         patches that exposed the construction. Real terrain has no such voids. The\r\n         ridges are far too gentle to create islands of their own — they just tilt\r\n         the whole sheet enough that contour lines keep running through the gaps,\r\n         which is what turns isolated bullseyes into one continuous landscape. */\r\n      const W2 = new Float32Array(9)\r\n      for (let i = 0; i < 3; i++) {\r\n        W2[i * 3] = (0.35 + rnd() * 0.5) * (Math.PI * 2) / Math.max(1, w)  // x freq\r\n        W2[i * 3 + 1] = (0.35 + rnd() * 0.5) * (Math.PI * 2) / Math.max(1, h) // y freq\r\n        W2[i * 3 + 2] = rnd() * Math.PI * 2                                 // phase\r\n      }\r\n      const hCount = (cols - 1) * rows\r\n      const eCount = hCount + cols * (rows - 1)\r\n      const field = {\r\n        cols, rows, step, K, bx, by, ba, bs, dx, dy, hCount, W2,\r\n        F: new Float32Array(cols * rows),\r\n        previous: new Float32Array(cols * rows),\r\n        hasPrevious: false,\r\n        smooth: new Float32Array(cols * rows),\r\n        // Exact row-block bounds include both rows and the shared right vertex.\r\n        // They reject empty regions without changing retained cells or path order.\r\n        blockCols: Math.ceil((cols - 1) / 16),\r\n        blockMin: new Float32Array(Math.ceil((cols - 1) / 16) * (rows - 1)),\r\n        blockMax: new Float32Array(Math.ceil((cols - 1) / 16) * (rows - 1)),\r\n        boundsReady: false,\r\n        ex: new Float32Array(eCount),\r\n        ey: new Float32Array(eCount),\r\n        es: new Int32Array(eCount).fill(-1),\r\n        n1: new Int32Array(eCount).fill(-1),\r\n        n2: new Int32Array(eCount).fill(-1),\r\n        seen: new Int32Array(eCount).fill(-1),\r\n        touched: new Int32Array(eCount),\r\n        seq: 0,\r\n      }\r\n      return { field, cols, rows }\r\n    }\nconst contourCoverageScore = (cand, w, h) => {\r\n      const f = cand.field\r\n      // Evaluate at phase 0: the accepted layout must be sound as first painted.\r\n      const prev = contourField\r\n      contourField = f\r\n      contourEvaluate(0)\r\n      contourField = prev\r\n      const { cols, rows, F } = f\r\n      const GX = 8, GY = 5\r\n      const span = CONTOUR_SPAN\r\n      const levelStep = (span * 2) / CONTOUR_LEVELS\r\n      let worst = Infinity\r\n      let ok = true\r\n      for (let gy = 0; gy < GY; gy++) {\r\n        for (let gx = 0; gx < GX; gx++) {\r\n          const i0 = Math.floor(gx * (cols - 1) / GX), i1 = Math.ceil((gx + 1) * (cols - 1) / GX)\r\n          const j0 = Math.floor(gy * (rows - 1) / GY), j1 = Math.ceil((gy + 1) * (rows - 1) / GY)\r\n          let mn = Infinity, mx = -Infinity\r\n          for (let j = j0; j <= j1 && j < rows; j++) {\r\n            const row = j * cols\r\n            for (let i = i0; i <= i1 && i < cols; i++) {\r\n              const v = F[row + i]\r\n              if (v < mn) mn = v\r\n              if (v > mx) mx = v\r\n            }\r\n          }\r\n          // Clamp to the drawn level range: values beyond +/-SPAN produce no lines.\r\n          const lo = Math.max(mn, -span), hi = Math.min(mx, span)\r\n          // How many level boundaries fall inside this cell's clamped range.\r\n          const crossings = hi <= lo ? 0\r\n            : Math.floor(hi / levelStep) - Math.ceil(lo / levelStep) + 1\r\n          if (crossings < worst) worst = crossings\r\n          if (crossings < CONTOUR_MIN_CROSSINGS) ok = false\r\n        }\r\n      }\r\n      return { ok, worst }\r\n    }\nconst contourEvaluate = (phase) => {\r\n      const f = contourField\r\n      if (f !== null) f.boundsReady = false\r\n      if (f === null) return\r\n      const { cols, rows, step, K, bx, by, ba, bs, dx, dy, F, W2 } = f\r\n      /* Seed the sheet with the base undulation instead of zero, so the gaps\r\n         between islands still have a gradient for the levels to cross. Separable\r\n         evaluation: sin(a+b) is expanded so the y term is computed once per row\r\n         rather than once per cell, which keeps this pass cheap. */\r\n      const BASE = 0.62\r\n      for (let i = 0; i < 3; i++) {\r\n        const fx = W2[i * 3], fy = W2[i * 3 + 1], ph = W2[i * 3 + 2] + phase * 0.11\r\n        const amp = BASE / 3\r\n        for (let j = 0; j < rows; j++) {\r\n          const yb = fy * (j * step) + ph\r\n          const sy = Math.sin(yb), cy2 = Math.cos(yb)\r\n          const row = j * cols\r\n          for (let c2 = 0; c2 < cols; c2++) {\r\n            const xb = fx * (c2 * step)\r\n            // sin(xb + yb) without a per-cell sin() of the sum\r\n            const v = Math.sin(xb) * cy2 + Math.cos(xb) * sy\r\n            if (i === 0) F[row + c2] = amp * v\r\n            else F[row + c2] += amp * v\r\n          }\r\n        }\r\n      }\r\n      for (let k = 0; k < K; k++) {\r\n        const s = bs[k]\r\n        const amp = s * 0.55\r\n        const cx = bx[k] + Math.sin(phase * dx[k] + k * 1.7) * amp\r\n        const cy = by[k] + Math.cos(phase * dy[k] + k * 2.3) * amp\r\n        const a = ba[k]\r\n        const inv = 1 / (2 * s * s)\r\n        const rad = 2.6 * s\r\n        let i0 = Math.floor((cx - rad) / step)\r\n        let i1 = Math.ceil((cx + rad) / step)\r\n        let j0 = Math.floor((cy - rad) / step)\r\n        let j1 = Math.ceil((cy + rad) / step)\r\n        if (i0 < 0) i0 = 0\r\n        if (j0 < 0) j0 = 0\r\n        if (i1 > cols - 1) i1 = cols - 1\r\n        if (j1 > rows - 1) j1 = rows - 1\r\n        for (let j = j0; j <= j1; j++) {\r\n          const ddy = j * step - cy\r\n          const dy2 = ddy * ddy\r\n          const row = j * cols\r\n          for (let i = i0; i <= i1; i++) {\r\n            const ddx = i * step - cx\r\n            const q = (ddx * ddx + dy2) * inv\r\n            if (q < 6.76) {\r\n              let weight = Math.exp(-q)\r\n              if (q > 4.8) {\r\n                const t = (q - 4.8) / (6.76 - 4.8)\r\n                const fade = 1 - t * t * (3 - 2 * t)\r\n                weight *= fade\r\n              }\r\n              F[row + i] += a * weight\r\n            }\r\n          }\r\n        }\r\n      }\r\n      const smooth = f.smooth\r\n      for (let pass = 0; pass < 5; pass++) {\r\n        for (let j = 0; j < rows; j++) {\r\n          const row = j * cols\r\n          for (let i = 0; i < cols; i++) {\r\n            const left = F[row + Math.max(0, i - 1)]\r\n            const center = F[row + i]\r\n            const right = F[row + Math.min(cols - 1, i + 1)]\r\n            smooth[row + i] = (left + 2 * center + right) * 0.25\r\n          }\r\n        }\r\n        for (let j = 0; j < rows; j++) {\r\n          const row = j * cols\r\n          const up = Math.max(0, j - 1) * cols\r\n          const down = Math.min(rows - 1, j + 1) * cols\r\n          for (let i = 0; i < cols; i++) {\r\n            F[row + i] = (smooth[up + i] + 2 * smooth[row + i] + smooth[down + i]) * 0.25\r\n          }\r\n        }\r\n      }\r\n      /* Track the field continuously between animation samples. Marching squares\r\n         can change an entire path at once when a saddle crosses a level; blending\r\n         the sampled field keeps that topology change from appearing as a twitch. */\r\n      if (f.hasPrevious && f.previous !== undefined) {\r\n        for (let i = 0; i < F.length; i++) {\r\n          f.previous[i] = f.previous[i] * 0.65 + F[i] * 0.35\r\n          F[i] = f.previous[i]\r\n        }\r\n      } else if (f.previous !== undefined) {\r\n        f.previous.set(F)\r\n      }\r\n      f.hasPrevious = true\r\n    }\nconst contourExtractLevel = (L, out) => {\r\n      const f = contourField\r\n      const { cols, rows, step, F, ex, ey, es, n1, n2, seen, touched, hCount } = f\r\n      const st = ++f.seq\r\n      let tn = 0\r\n      const pt = (id, i0, j0, i1, j1) => {\r\n        if (es[id] === st) return id\r\n        const a = F[j0 * cols + i0]\r\n        const b = F[j1 * cols + i1]\r\n        let t = (L - a) / (b - a)\r\n        if (!(t >= 0)) t = 0\r\n        else if (t > 1) t = 1\r\n        ex[id] = (i0 + (i1 - i0) * t) * step\r\n        ey[id] = (j0 + (j1 - j0) * t) * step\r\n        es[id] = st\r\n        n1[id] = -1\r\n        n2[id] = -1\r\n        touched[tn++] = id\r\n        return id\r\n      }\r\n      const link = (a, b) => {\r\n        if (n1[a] < 0) n1[a] = b\r\n        else if (n2[a] < 0) n2[a] = b\r\n        if (n1[b] < 0) n1[b] = a\r\n        else if (n2[b] < 0) n2[b] = a\r\n      }\r\n      for (let j = 0; j < rows - 1; j++) {\r\n        const row = j * cols\r\n        for (let i = 0; i < cols - 1; i++) {\r\n          if (f.boundsReady && i % 16 === 0) {\r\n            const block = j * f.blockCols + Math.floor(i / 16)\r\n            if (L <= f.blockMin[block] || L > f.blockMax[block]) {\r\n              i = Math.min(i + 16, cols - 1) - 1\r\n              continue\r\n            }\r\n          }\r\n          const p0 = row + i\r\n          const p1 = p0 + 1\r\n          const p3 = p0 + cols\r\n          const p2 = p3 + 1\r\n          const v0 = F[p0], v1 = F[p1], v2 = F[p2], v3 = F[p3]\r\n          let mn = v0, mx = v0\r\n          if (v1 < mn) mn = v1; else if (v1 > mx) mx = v1\r\n          if (v2 < mn) mn = v2; else if (v2 > mx) mx = v2\r\n          if (v3 < mn) mn = v3; else if (v3 > mx) mx = v3\r\n          // Whole cell on one side of the level: nothing crosses it.\r\n          if (L <= mn || L > mx) continue\r\n          const idx = (v0 > L ? 1 : 0) | (v1 > L ? 2 : 0) | (v2 > L ? 4 : 0) | (v3 > L ? 8 : 0)\r\n          const T = () => pt(j * (cols - 1) + i, i, j, i + 1, j)\r\n          const B = () => pt((j + 1) * (cols - 1) + i, i, j + 1, i + 1, j + 1)\r\n          const Le = () => pt(hCount + j * cols + i, i, j, i, j + 1)\r\n          const Ri = () => pt(hCount + j * cols + i + 1, i + 1, j, i + 1, j + 1)\r\n          switch (idx) {\r\n            case 1: case 14: link(T(), Le()); break\r\n            case 2: case 13: link(T(), Ri()); break\r\n            case 3: case 12: link(Le(), Ri()); break\r\n            case 4: case 11: link(Ri(), B()); break\r\n            case 6: case 9: link(T(), B()); break\r\n            case 7: case 8: link(Le(), B()); break\r\n            // Ambiguous saddles use the bilinear asymptotic decider. The sign of\r\n            // a*c-b*d selects whether the diagonal high/low regions are connected;\r\n            // using the cell average alone is wrong when opposite corners differ in\r\n            // magnitude and produces the long V-shaped joins seen in the render.\r\n            case 5: {\r\n              const a = v0 - L, b = v1 - L, c = v2 - L, d = v3 - L\r\n              const saddle = a * c - b * d\r\n              if (saddle > 0) { link(T(), Ri()); link(Le(), B()) }\r\n              else { link(T(), Le()); link(Ri(), B()) }\r\n              break\r\n            }\r\n            case 10: {\r\n              const a = v0 - L, b = v1 - L, c = v2 - L, d = v3 - L\r\n              const saddle = a * c - b * d\r\n              if (saddle < 0) { link(T(), Le()); link(Ri(), B()) }\r\n              else { link(T(), Ri()); link(Le(), B()) }\r\n              break\r\n            }\r\n          }\r\n        }\r\n      }\r\n      const walk = (start) => {\r\n        const path = []\r\n        let cur = start\r\n        let prev = -1\r\n        for (;;) {\r\n          path.push(ex[cur], ey[cur])\r\n          seen[cur] = st\r\n          const a = n1[cur]\r\n          const b = n2[cur]\r\n          let nx = -1\r\n          if (a >= 0 && a !== prev && seen[a] !== st) nx = a\r\n          else if (b >= 0 && b !== prev && seen[b] !== st) nx = b\r\n          if (nx < 0) {\r\n            // Closed loop: step back onto the first point so the ring has no gap.\r\n            if ((a === start || b === start) && path.length > 4) path.push(ex[start], ey[start])\r\n            break\r\n          }\r\n          prev = cur\r\n          cur = nx\r\n        }\r\n        return path\r\n      }\r\n      /* Reject debris before it reaches the draw list. Judged on the path's\r\n         ON-CANVAS geometry, so an off-grid sliver with no visible pixels is\r\n         dropped even when its raw length looks respectable. See the note on\r\n         CONTOUR_MIN_LEN / CONTOUR_MIN_RING_BOX for the measurements behind both\r\n         thresholds. */\r\n      const W = contourGeom !== null ? contourGeom.w : 0\r\n      const H = contourGeom !== null ? contourGeom.h : 0\r\n      const keep = (p) => {\r\n        if (p.length < 8) return false\r\n        // Visible length, plus the bounding box of the part actually on screen.\r\n        let vis = 0\r\n        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity\r\n        let seenIn = false\r\n        for (let k = 0; k < p.length; k += 2) {\r\n          const x = p[k], y = p[k + 1]\r\n          const inside = x >= 0 && x <= W && y >= 0 && y <= H\r\n          if (inside) {\r\n            seenIn = true\r\n            if (x < minx) minx = x\r\n            if (x > maxx) maxx = x\r\n            if (y < miny) miny = y\r\n            if (y > maxy) maxy = y\r\n          }\r\n          if (k >= 2) {\r\n            const px2 = p[k - 2], py2 = p[k - 1]\r\n            const prevIn = px2 >= 0 && px2 <= W && py2 >= 0 && py2 <= H\r\n            if (inside && prevIn) {\r\n              const dx = x - px2, dy = y - py2\r\n              vis += Math.sqrt(dx * dx + dy * dy)\r\n            }\r\n          }\r\n        }\r\n        if (!seenIn) return false            // entirely off-canvas: pure debris\r\n        if (vis < CONTOUR_KEEP_LEN) return false\r\n        /* A tiny CLOSED ring is an apex bullseye and reads as a dot. Open chains of\r\n           the same extent are left alone: they are the visible corner of a stroke\r\n           that continues off-canvas, and clipping one would punch a hole in a line\r\n           the user can see running to the edge. */\r\n        const gapx = p[0] - p[p.length - 2]\r\n        const gapy = p[1] - p[p.length - 1]\r\n        const closed = (gapx * gapx + gapy * gapy) < 4\r\n        if (closed && (maxx - minx) < CONTOUR_KEEP_RING\r\n          && (maxy - miny) < CONTOUR_KEEP_RING) return false\r\n        return true\r\n      }\r\n      /* TANGENCY NEEDLES. Where a level runs nearly TANGENT to the field, the true\r\n         isoline has a smooth, very high curvature tip. Marching squares interpolates\r\n         linearly on a 10px grid, so it cannot represent that tip: it emits a hairpin\r\n         that goes out and comes straight back, with a BASE (the gap between the\r\n         apex's two neighbours) far narrower than the 1px stroke. Measured on the real\r\n         output, worst case: apex 6.26px out from a base of 0.831px.\r\n\r\n         At that width the outbound and return strokes paint the SAME pixels, so the\r\n         pair does not read as a narrow valley — only the protruding whisker shows,\r\n         which is precisely the \"irregular sharp angle\" in issue #3. Smoothing cannot\r\n         help: the midpoint spline faithfully reproduces a feature that is genuinely\r\n         in the geometry, so it has to be removed here, at the source.\r\n\r\n         The whole hairpin is collapsed (see the note on the merge below). Both tests\r\n         are required and were measured over 24 frames (152.6k vertices, 1.18Mpx of\r\n         ink):\r\n           base < 2px   the stroke cannot resolve it (a 1px line is ~1px wide)\r\n           turn > 90    it doubles back rather than merely turning a corner\r\n         That is 0.7 vertices per frame and 0.0037% of total ink -- artifact removal,\r\n         not thinning. Real narrow features are untouched: turns over 90 degrees have\r\n         a median base of 4.03px, well clear of the cutoff, and the whole 8-12px base\r\n         band (29562 vertices) has a p99 turn of only 21.7 degrees. */\r\n      const deneedle = (p) => {\r\n        const n = p.length / 2\r\n        if (n < 4) return p\r\n        /* Scan first and return the ORIGINAL array when there is nothing to do, so\r\n           the overwhelmingly common path allocates nothing at 24fps. */\r\n        let found = false\r\n        for (let k = 1; k < n - 1; k++) {\r\n          const bx = p[(k + 1) * 2] - p[(k - 1) * 2]\r\n          const by = p[(k + 1) * 2 + 1] - p[(k - 1) * 2 + 1]\r\n          if (bx * bx + by * by >= 4) continue          // base >= 2px: keep\r\n          const ax = p[k * 2] - p[(k - 1) * 2]\r\n          const ay = p[k * 2 + 1] - p[(k - 1) * 2 + 1]\r\n          const cx = p[(k + 1) * 2] - p[k * 2]\r\n          const cy = p[(k + 1) * 2 + 1] - p[k * 2 + 1]\r\n          // turn > 90 degrees <=> the two segment vectors point against each other.\r\n          if (ax * cx + ay * cy < 0) { found = true; break }\r\n        }\r\n        if (!found) return p\r\n        const gx = p[0] - p[(n - 1) * 2]\r\n        const gy = p[1] - p[(n - 1) * 2 + 1]\r\n        const closed = (gx * gx + gy * gy) < 4\r\n        /* COLLAPSE THE WHOLE NEEDLE, not just its tip. Dropping the apex alone leaves\r\n           the base itself as a real segment, and that was measured to be worse than\r\n           the disease: a 0.831px stub inherits the reversal as TWO ~78-degree turns\r\n           (10.20 -> 0.83 -> 10.25px). The apex AND its far neighbour are therefore\r\n           both consumed, and the surviving previous vertex is pulled onto the base\r\n           midpoint -- a sub-pixel move (half of at most 2px) that no 1px stroke can\r\n           show, leaving one smooth vertex where the hairpin was.\r\n           Each test uses the SURVIVING previous vertex, so a run of needles collapses\r\n           progressively instead of each test being fooled by a neighbour that is\r\n           itself about to be consumed. */\r\n        const q = [p[0], p[1]]\r\n        let k = 1\r\n        while (k < n - 1) {\r\n          const px = q[q.length - 2], py = q[q.length - 1]\r\n          const bx = p[(k + 1) * 2] - px, by = p[(k + 1) * 2 + 1] - py\r\n          if (bx * bx + by * by < 4) {\r\n            const ax = p[k * 2] - px, ay = p[k * 2 + 1] - py\r\n            const cx = p[(k + 1) * 2] - p[k * 2], cy = p[(k + 1) * 2 + 1] - p[k * 2 + 1]\r\n            if (ax * cx + ay * cy < 0) {\r\n              if (k + 1 < n - 1) {\r\n                q[q.length - 2] = (px + p[(k + 1) * 2]) / 2\r\n                q[q.length - 1] = (py + p[(k + 1) * 2 + 1]) / 2\r\n                k += 2\r\n                continue\r\n              }\r\n              // The far neighbour is the final vertex, which must survive to keep an\r\n              // endpoint (or a ring's closure) intact: consume only the apex.\r\n              k += 1\r\n              continue\r\n            }\r\n          }\r\n          q.push(p[k * 2], p[k * 2 + 1])\r\n          k += 1\r\n        }\r\n        q.push(p[(n - 1) * 2], p[(n - 1) * 2 + 1])\r\n        /* A ring is closed by REPEATING its start vertex, and the merge above may have\r\n           nudged that start. Re-anchor the repeat so the ring stays exactly closed and\r\n           both keep() and the cyclic draw path still classify it as one. */\r\n        if (closed) {\r\n          q[q.length - 2] = q[0]\r\n          q[q.length - 1] = q[1]\r\n        }\r\n        return q\r\n      }\r\n      // Open chains first (they have a free end), then whatever remains is a loop.\r\n      // Doing it in this order stops a ring being entered mid-way and split in two.\r\n      for (let k = 0; k < tn; k++) {\r\n        const id = touched[k]\r\n        if (seen[id] !== st && n2[id] < 0) {\r\n          const p = deneedle(walk(id))\r\n          if (keep(p)) out.push(p)\r\n        }\r\n      }\r\n      for (let k = 0; k < tn; k++) {\r\n        const id = touched[k]\r\n        if (seen[id] !== st) {\r\n          const p = deneedle(walk(id))\r\n          if (keep(p)) out.push(p)\r\n        }\r\n      }\r\n    }\nconst contourExtract = (phase, trailPoints, trailNow) => {\r\n      if (contourField === null) return\r\n      contourEvaluate(phase)\r\n      if (trailPoints && trailPoints.length) contourOverlayTrail(contourField, trailPoints, trailNow)\r\n      const f = contourField\r\n      // One O(cells) range pass is shared by all 21 extraction levels. Scratch\r\n      // survives across frames; no resolution, smoothing or density is reduced.\r\n      for (let j = 0; j < f.rows - 1; j++) {\r\n        const row = j * f.cols\r\n        for (let block = 0; block < f.blockCols; block++) {\r\n          const begin = block * 16\r\n          const end = Math.min(begin + 16, f.cols - 1)\r\n          let min = Infinity, max = -Infinity\r\n          for (let i = begin; i <= end; i++) {\r\n            const a = f.F[row + i], b = f.F[row + f.cols + i]\r\n            if (a < min) min = a\r\n            if (a > max) max = a\r\n            if (b < min) min = b\r\n            if (b > max) max = b\r\n          }\r\n          const k = j * f.blockCols + block\r\n          f.blockMin[k] = min\r\n          f.blockMax[k] = max\r\n        }\r\n      }\r\n      f.boundsReady = true\r\n      contourPaths = []\r\n      const span = CONTOUR_SPAN\r\n      const stepL = (span * 2) / CONTOUR_LEVELS\r\n      for (let n = 0; n <= CONTOUR_LEVELS; n++) {\r\n        contourExtractLevel(-span + n * stepL, contourPaths)\r\n      }\r\n    }\nconst contourDrawLines = () => {\r\n      if (contourLineCv === null || contourGeom === null) return\r\n      const ctx = contourLineCv.getContext('2d')\r\n      if (!ctx) return\r\n      const { w, h } = contourGeom\r\n      /* Geometry stays in CSS px; scale the context to the backing store that\r\n         contourSizeTo sized at (capped) devicePixelRatio, so strokes rasterise\r\n         at device resolution instead of being upsampled into blur on HiDPI\r\n         screens. Derived from the canvas itself, and skipped entirely at a 1x\r\n         store or when the context has no setTransform (the spliced-in test\r\n         harnesses), so a 1x render is byte-identical to before. */\r\n      const scale = (w > 0 && typeof contourLineCv.width === 'number' && contourLineCv.width > 0 && contourLineCv.width !== w)\r\n        ? contourLineCv.width / w : 1\r\n      if (scale !== 1 && typeof ctx.setTransform === 'function') ctx.setTransform(scale, 0, 0, scale, 0, 0)\r\n      ctx.clearRect(0, 0, w, h)\r\n      ctx.strokeStyle = contourStroke()\r\n      ctx.lineWidth = 1\r\n      ctx.lineJoin = 'round'\r\n      /* Marching squares emits one vertex per grid-cell edge. Three Chaikin passes\r\n         cut local corners before the clamped cubic B-spline rounds broad bends.\r\n         This reduces angularity without changing the field or adding another\r\n         extraction pass. Open endpoints remain fixed; closed rings wrap cyclically. */\r\n      const smoothPath = (source) => {\r\n        const count = source.length / 2\r\n        if (count < 3) return source\r\n        let points = []\r\n        for (let k = 0; k < source.length; k += 2) points.push([source[k], source[k + 1]])\r\n        const closed = (points[0][0] - points[points.length - 1][0]) ** 2\r\n          + (points[0][1] - points[points.length - 1][1]) ** 2 < 4\r\n        if (closed) points.pop()\r\n        for (let pass = 0; pass < 3; pass++) {\r\n          const next = []\r\n          const limit = closed ? points.length : points.length - 1\r\n          if (!closed) next.push(points[0])\r\n          for (let k = 0; k < limit; k++) {\r\n            const a = points[k]\r\n            const b = points[(k + 1) % points.length]\r\n            next.push([\r\n              a[0] * 0.75 + b[0] * 0.25,\r\n              a[1] * 0.75 + b[1] * 0.25,\r\n            ], [\r\n              a[0] * 0.25 + b[0] * 0.75,\r\n              a[1] * 0.25 + b[1] * 0.75,\r\n            ])\r\n          }\r\n          if (!closed) next.push(points[points.length - 1])\r\n          points = next\r\n        }\r\n        const result = []\r\n        for (const point of points) result.push(point[0], point[1])\r\n        if (closed) result.push(result[0], result[1])\r\n        return result\r\n      }\r\n      /* Chaikin removes local grid noise. A constrained Catmull-Rom cubic then\r\n         gives each join one shared tangent. The handle cap prevents overshoot at\r\n         narrow saddles while the larger tangent factor removes long rounded-polygon\r\n         bends that remain visible with midpoint quadratics. */\r\n      const drawSmoothPath = (source) => {\r\n        const count = source.length / 2\r\n        if (count < 3) {\r\n          ctx.moveTo(source[0], source[1])\r\n          for (let k = 2; k < source.length; k += 2) ctx.lineTo(source[k], source[k + 1])\r\n          return\r\n        }\r\n        const closed = (source[0] - source[source.length - 2]) ** 2\r\n          + (source[1] - source[source.length - 1]) ** 2 < 4\r\n        const limit = closed ? count - 1 : count\r\n        const point = (index) => {\r\n          const k = closed\r\n            ? (index + limit) % limit\r\n            : Math.max(0, Math.min(limit - 1, index))\r\n          return [source[k * 2], source[k * 2 + 1]]\r\n        }\r\n        const tangent = (index) => {\r\n          const current = point(index)\r\n          const previous = point(index - 1)\r\n          const next = point(index + 1)\r\n          let tx, ty, cap\r\n          const incomingX = current[0] - previous[0]\r\n          const incomingY = current[1] - previous[1]\r\n          const outgoingX = next[0] - current[0]\r\n          const outgoingY = next[1] - current[1]\r\n          if (!closed && index === 0) {\r\n            tx = outgoingX * 0.4\r\n            ty = outgoingY * 0.4\r\n            cap = Math.hypot(outgoingX, outgoingY) * 0.55\r\n          } else if (!closed && index === limit - 1) {\r\n            tx = incomingX * 0.4\r\n            ty = incomingY * 0.4\r\n            cap = Math.hypot(incomingX, incomingY) * 0.55\r\n          } else {\r\n            tx = (next[0] - previous[0]) * 0.32\r\n            ty = (next[1] - previous[1]) * 0.32\r\n            cap = Math.min(\r\n              Math.hypot(incomingX, incomingY),\r\n              Math.hypot(outgoingX, outgoingY),\r\n            ) * 0.62\r\n          }\r\n          const length = Math.hypot(tx, ty)\r\n          if (length > cap && length > 0) {\r\n            tx *= cap / length\r\n            ty *= cap / length\r\n          }\r\n          return [tx, ty]\r\n        }\r\n        ctx.moveTo(source[0], source[1])\r\n        const segments = closed ? limit : limit - 1\r\n        for (let k = 0; k < segments; k++) {\r\n          const start = point(k)\r\n          const end = point(k + 1)\r\n          const startTangent = tangent(k)\r\n          const endTangent = tangent(k + 1)\r\n          ctx.bezierCurveTo(\r\n            start[0] + startTangent[0], start[1] + startTangent[1],\r\n            end[0] - endTangent[0], end[1] - endTangent[1],\r\n            end[0], end[1],\r\n          )\r\n        }\r\n        /* Mark a ring as a RING. The cyclic tangents above already make the seam C1\r\n           and the final span already lands exactly on the start point, so this adds\r\n           no geometry — but without it the canvas treats the path as open and butts\r\n           two caps together at the seam instead of joining them, which is defect (2)\r\n           of issue #3. contour-cusps.test.js guards this. */\r\n        if (closed) ctx.closePath()\r\n      }\r\n      ctx.beginPath()\r\n      for (let i = 0; i < contourPaths.length; i++) drawSmoothPath(smoothPath(contourPaths[i]))\r\n      ctx.stroke()\r\n    }\r\n/* MIT; contributed by higekibaka. GPU stroke painter from Endfield Glass. */\r\nconst CURVE_TOLERANCE_PX = 0.04;\r\nconst STRIDE = 6;\r\nclass StrokeSegments {\r\n  data = new Float32Array(4096 * STRIDE);\r\n  used = 0;\r\n  tolerance = CURVE_TOLERANCE_PX;\r\n  x = 0;\r\n  y = 0;\r\n  startX = 0;\r\n  startY = 0;\r\n  first = 0;\r\n  reset() {\r\n    this.used = 0;\r\n    this.first = 0;\r\n  }\r\n  moveTo(x, y) {\r\n    this.x = this.startX = x;\r\n    this.y = this.startY = y;\r\n    this.first = this.used;\r\n  }\r\n  lineTo(x, y) {\r\n    if (x === this.x && y === this.y) return;\r\n    if (this.used + STRIDE > this.data.length) {\r\n      const next = new Float32Array(this.data.length * 2);\r\n      next.set(this.data);\r\n      this.data = next;\r\n    }\r\n    const i = this.used;\r\n    this.data[i] = this.x;\r\n    this.data[i + 1] = this.y;\r\n    this.data[i + 2] = x;\r\n    this.data[i + 3] = y;\r\n    this.data[i + 4] = i === this.first ? 1 : 0;\r\n    this.data[i + 5] = 1;\r\n    if (i > this.first) this.data[i - 1] = 0;\r\n    this.used += STRIDE;\r\n    this.x = x;\r\n    this.y = y;\r\n  }\r\n  closePath() {\r\n    this.lineTo(this.startX, this.startY);\r\n    if (this.used > this.first) {\r\n      this.data[this.first + 4] = 0;\r\n      this.data[this.used - 1] = 0;\r\n    }\r\n  }\r\n  bezierCurveTo(ax, ay, bx, by, x, y) {\r\n    this.cubic(this.x, this.y, ax, ay, bx, by, x, y, 0);\r\n  }\r\n  cubic(x0, y0, x1, y1, x2, y2, x3, y3, depth) {\r\n    const dx = x3 - x0, dy = y3 - y0, length2 = dx * dx + dy * dy;\r\n    const tolerance2 = this.tolerance * this.tolerance;\r\n    const t1 = length2 > 0 ? Math.max(0, Math.min(1, ((x1 - x0) * dx + (y1 - y0) * dy) / length2)) : 0;\r\n    const t2 = length2 > 0 ? Math.max(0, Math.min(1, ((x2 - x0) * dx + (y2 - y0) * dy) / length2)) : 0;\r\n    const e1x = x1 - x0 - t1 * dx, e1y = y1 - y0 - t1 * dy;\r\n    const e2x = x2 - x0 - t2 * dx, e2y = y2 - y0 - t2 * dy;\r\n    if (e1x * e1x + e1y * e1y <= tolerance2 && e2x * e2x + e2y * e2y <= tolerance2 || depth >= 16) {\r\n      this.lineTo(x3, y3);\r\n      return;\r\n    }\r\n    const a = (x0 + x1) / 2, b = (y0 + y1) / 2, c = (x1 + x2) / 2, d = (y1 + y2) / 2;\r\n    const e = (x2 + x3) / 2, f = (y2 + y3) / 2, g = (a + c) / 2, h = (b + d) / 2;\r\n    const i = (c + e) / 2, j = (d + f) / 2, k = (g + i) / 2, l = (h + j) / 2;\r\n    this.cubic(x0, y0, a, b, g, h, k, l, depth + 1);\r\n    this.cubic(k, l, i, j, e, f, x3, y3, depth + 1);\r\n  }\r\n}\r\nfunction parseStrokeColor(value) {\r\n  const m = value.match(/^rgba?\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*,\\s*([\\d.]+)(?:\\s*,\\s*([\\d.]+))?\\s*\\)$/);\r\n  if (!m) return null;\r\n  const values = [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255, m[4] === void 0 ? 1 : Number(m[4])];\r\n  return values.every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ? values : null;\r\n}\r\nconst VERTEX = `#version 300 es\r\nprecision highp float;\r\nlayout(location=0) in vec4 segment;\r\nlayout(location=1) in vec2 caps;\r\nuniform vec2 viewportSize;\r\nuniform vec2 scale;\r\nuniform float width;\r\nout vec2 local;\r\nflat out float segmentLength;\r\nflat out float radius;\r\nflat out vec2 endCaps;\r\nvoid main() {\r\n  vec2 a = segment.xy * scale, b = segment.zw * scale;\r\n  vec2 delta = b-a;\r\n  segmentLength = max(length(delta), 0.000001);\r\n  vec2 tangent = delta / segmentLength;\r\n  vec2 normal = vec2(-tangent.y, tangent.x);\r\n  radius = 0.5 * width * scale.x * scale.y * length(segment.zw-segment.xy) / segmentLength;\r\n  float margin = radius + 1.0;\r\n  // Two triangles per segment, generated without a second vertex buffer.\r\n  vec2 corners[6] = vec2[6](vec2(0,-1),vec2(1,-1),vec2(0,1),vec2(0,1),vec2(1,-1),vec2(1,1));\r\n  vec2 corner = corners[gl_VertexID];\r\n  local = vec2(mix(-margin, segmentLength+margin, corner.x), corner.y * margin);\r\n  vec2 pixel = a + tangent * local.x + normal * local.y;\r\n  gl_Position = vec4(pixel.x/viewportSize.x*2.0-1.0, 1.0-pixel.y/viewportSize.y*2.0, 0, 1);\r\n  endCaps = caps;\r\n}`;\r\nconst FRAGMENT = `#version 300 es\r\nprecision highp float;\r\nin vec2 local;\r\nflat in float segmentLength;\r\nflat in float radius;\r\nflat in vec2 endCaps;\r\nuniform vec4 color;\r\nout vec4 outputColor;\r\nvoid main() {\r\n  vec2 nearest = vec2(clamp(local.x, 0.0, segmentLength), 0);\r\n  float distance = length(local-nearest)-radius;\r\n  if (endCaps.x > 0.5) distance = max(distance, -local.x);\r\n  if (endCaps.y > 0.5) distance = max(distance, local.x-segmentLength);\r\n  float coverage = clamp(0.5-distance, 0.0, 1.0);\r\n  float alpha = color.a * coverage;\r\n  outputColor = vec4(color.rgb * alpha, alpha);\r\n}`;\r\nfunction createWebGLContourContext(canvas, onContextLost) {\r\n  const gl = canvas.getContext(\"webgl2\", {\r\n    alpha: true,\r\n    premultipliedAlpha: true,\r\n    antialias: false,\r\n    depth: false,\r\n    stencil: false,\r\n    preserveDrawingBuffer: false\r\n  });\r\n  if (!gl) return null;\r\n  let program = null;\r\n  let buffer = null;\r\n  let vao = null;\r\n  const shaders = [];\r\n  const events = canvas;\r\n  const lost = () => onContextLost?.();\r\n  const releaseContext = gl.getExtension(\"WEBGL_lose_context\");\r\n  const release = () => {\r\n    events.removeEventListener?.(\"webglcontextlost\", lost);\r\n    if (buffer) gl.deleteBuffer(buffer);\r\n    if (vao) gl.deleteVertexArray(vao);\r\n    if (program) gl.deleteProgram(program);\r\n    for (const shader of shaders) gl.deleteShader(shader);\r\n    buffer = null;\r\n    vao = null;\r\n    program = null;\r\n    shaders.length = 0;\r\n    releaseContext?.loseContext();\r\n  };\r\n  try {\r\n    const compile = (type, source) => {\r\n      const shader = gl.createShader(type);\r\n      if (!shader) throw new Error(\"WebGL shader allocation failed\");\r\n      shaders.push(shader);\r\n      gl.shaderSource(shader, source);\r\n      gl.compileShader(shader);\r\n      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(\"Contour shader: \" + gl.getShaderInfoLog(shader));\r\n      return shader;\r\n    };\r\n    const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);\r\n    program = gl.createProgram();\r\n    buffer = gl.createBuffer();\r\n    vao = gl.createVertexArray();\r\n    if (!program || !buffer || !vao) throw new Error(\"WebGL allocation failed\");\r\n    gl.attachShader(program, vs);\r\n    gl.attachShader(program, fs);\r\n    gl.linkProgram(program);\r\n    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(\"Contour shader link: \" + gl.getProgramInfoLog(program));\r\n    gl.useProgram(program);\r\n    gl.bindVertexArray(vao);\r\n    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);\r\n    gl.enableVertexAttribArray(0);\r\n    gl.vertexAttribPointer(0, 4, gl.FLOAT, false, STRIDE * 4, 0);\r\n    gl.vertexAttribDivisor(0, 1);\r\n    gl.enableVertexAttribArray(1);\r\n    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, STRIDE * 4, 16);\r\n    gl.vertexAttribDivisor(1, 1);\r\n    gl.disable(gl.DEPTH_TEST);\r\n    gl.disable(gl.CULL_FACE);\r\n    gl.disable(gl.DITHER);\r\n    gl.enable(gl.BLEND);\r\n    gl.blendEquation(gl.MAX);\r\n    gl.blendFunc(gl.ONE, gl.ONE);\r\n    const viewport = gl.getUniformLocation(program, \"viewportSize\");\r\n    const scaling = gl.getUniformLocation(program, \"scale\");\r\n    const color = gl.getUniformLocation(program, \"color\");\r\n    const width = gl.getUniformLocation(program, \"width\");\r\n    const segments = new StrokeSegments();\r\n    let sx = 1, sy = 1, capacity = 0, disposed = false;\r\n    const context = {\r\n      strokeStyle: \"rgba(16,17,16,0.16)\",\r\n      lineWidth: 1,\r\n      lineJoin: \"round\",\r\n      setTransform(a, b, c, d, e, f) {\r\n        if (b !== 0 || c !== 0 || e !== 0 || f !== 0 || a <= 0 || d <= 0) throw new Error(\"Unsupported contour transform\");\r\n        sx = a;\r\n        sy = d;\r\n        segments.tolerance = CURVE_TOLERANCE_PX / Math.max(sx, sy);\r\n      },\r\n      clearRect() {\r\n        if (disposed || gl.isContextLost()) throw new Error(\"Contour WebGL context lost\");\r\n        gl.viewport(0, 0, canvas.width, canvas.height);\r\n        gl.clearColor(0, 0, 0, 0);\r\n        gl.clear(gl.COLOR_BUFFER_BIT);\r\n      },\r\n      beginPath: () => segments.reset(),\r\n      moveTo: (x, y) => segments.moveTo(x, y),\r\n      lineTo: (x, y) => segments.lineTo(x, y),\r\n      bezierCurveTo: (a, b, c, d, e, f) => segments.bezierCurveTo(a, b, c, d, e, f),\r\n      closePath: () => segments.closePath(),\r\n      stroke() {\r\n        const rgba = parseStrokeColor(context.strokeStyle);\r\n        if (!rgba) throw new Error(\"Unsupported contour stroke color\");\r\n        if (segments.used === 0) {\r\n          gl.flush();\r\n          return;\r\n        }\r\n        gl.uniform2f(viewport, canvas.width, canvas.height);\r\n        gl.uniform2f(scaling, sx, sy);\r\n        gl.uniform4fv(color, rgba);\r\n        gl.uniform1f(width, context.lineWidth);\r\n        if (capacity < segments.data.byteLength) {\r\n          capacity = segments.data.byteLength;\r\n          gl.bufferData(gl.ARRAY_BUFFER, capacity, gl.STREAM_DRAW);\r\n        }\r\n        gl.bufferSubData(gl.ARRAY_BUFFER, 0, segments.data, 0, segments.used);\r\n        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, segments.used / STRIDE);\r\n        gl.flush();\r\n      },\r\n      dispose() {\r\n        if (disposed) return;\r\n        disposed = true;\r\n        segments.data = new Float32Array(0);\r\n        segments.used = 0;\r\n        release();\r\n      }\r\n    };\r\n    events.addEventListener?.(\"webglcontextlost\", lost);\r\n    return context;\r\n  } catch (error) {\r\n    release();\r\n    throw error;\r\n  }\r\n}\r\n\r\nself.onmessage = ({data}) => {\r\n  try {\r\n    if (data.type === 'init') {\r\n      if (canvas !== null) throw new Error('duplicate worker init')\r\n      canvas = data.canvas; contourSeed = data.seed\r\n      painter = createWebGLContourContext(canvas, () => self.postMessage({type:'error',message:'WebGL context lost'}))\r\n      rasterizer = painter ? 'worker-webgl2' : 'worker-canvas2d'\r\n      if (!painter) painter = canvas.getContext('2d', {willReadFrequently:true})\r\n      if (!painter) throw new Error('worker canvas unavailable')\r\n      contourLineCv = {getContext:()=>painter, get width(){return canvas.width},get height(){return canvas.height}}\r\n      self.postMessage({type:'initialized',rasterizer})\r\n    } else if (data.type === 'frame') {\r\n      if (!canvas || !painter) throw new Error('worker not initialized')\r\n      const {w,h,dpr,phase,geometry,color,seq}=data\r\n      if (![w,h,dpr,phase,seq].every(Number.isFinite) || w<1 || h<1 || dpr<=0 || dpr>2\r\n        || Math.round(w*dpr)*Math.round(h*dpr)>8000000 || !/^#[0-9a-f]{8}$/i.test(color)) throw new Error('invalid frame')\r\n      const resized = !contourGeom || contourGeom.w!==w || contourGeom.h!==h\r\n      if (resized) contourBuild(w,h)\r\n      const width=Math.round(w*dpr),height=Math.round(h*dpr)\r\n      if(canvas.width!==width)canvas.width=width\r\n      if(canvas.height!==height)canvas.height=height\r\n      const c=color.slice(1)\r\n      stroke=`rgba(${parseInt(c.slice(0,2),16)},${parseInt(c.slice(2,4),16)},${parseInt(c.slice(4,6),16)},${parseInt(c.slice(6,8),16)/255})`\r\n      if(geometry || resized)contourExtract(phase)\r\n      painter.setTransform(1,0,0,1,0,0)\r\n      contourDrawLines()\r\n      self.postMessage({type:'painted',seq,rasterizer})\r\n    } else if (data.type === 'dispose') {\r\n      if(painter && painter.dispose)painter.dispose()\r\n      contourField=null;contourPaths=[];painter=null;canvas=null\r\n      self.close()\r\n    }\r\n  } catch(error) { self.postMessage({type:'error',message:String(error.message || error)}) }\r\n}\r\nself.postMessage({type:'ready'})\r\n"
+    const CONTOUR_WORKER_SOURCE = "/* Dedicated contour worker. Kernel is extracted from client.js by the build script.\n * MIT; original terrain Copyright (c) 2026 ymh0000123. */\nconst CONTOUR_STEP = 6, CONTOUR_LEVELS = 20, CONTOUR_SPAN = 1.45\nconst CONTOUR_MIN_LEN = 40, CONTOUR_MIN_RING_BOX = 21\nconst CONTOUR_KEEP_LEN = CONTOUR_MIN_LEN * 1.35, CONTOUR_KEEP_RING = CONTOUR_MIN_RING_BOX * 1.5\nconst CONTOUR_MIN_CROSSINGS = 3\nlet contourSeed = 1, contourField = null, contourGeom = null, contourPaths = []\nlet contourLineCv = null, canvas = null, painter = null, stroke = 'rgba(0,0,0,0)', rasterizer = null\nconst contourStroke = () => stroke\n/* The centre-defocus pass (中央散景) is MAIN-THREAD ONLY, so it is a no-op here.\n *\n * contourDrawLines() is extracted verbatim from client.js by\n * scripts/build-contour-worker.js, and the fork's version calls\n * contourBokehPass(). This backend cannot run that pass in principle: the\n * rasteriser is either the WebGL2 shim (src/contour-webgl.js), which exposes no\n * filter, no globalCompositeOperation, no gradients and no drawImage, or an\n * OffscreenCanvas the page has no way to composite onto.\n *\n * Defining it as a no-op is what keeps the sheet SHARP on this backend — the\n * documented behaviour — instead of throwing a ReferenceError inside the worker.\n * The host also never starts the worker while a defocus level is selected (see\n * bokehNeedsMainThread in client.js), so this is a belt-and-braces definition\n * rather than a live path. */\nconst contourBokehPass = () => {}\nconst contourRng = (seed) => {\n      let a = seed >>> 0\n      return () => {\n        a = (a + 0x6D2B79F5) >>> 0\n        let t = Math.imul(a ^ (a >>> 15), 1 | a)\n        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t\n        return ((t ^ (t >>> 14)) >>> 0) / 4294967296\n      }\n    }\nconst contourBuild = (w, h) => {\n      /* ACCEPT-OR-REROLL. A random layout is not automatically a GOOD layout, and\n         this is the concrete lesson from making the seed per-load: the old fixed\n         seed had silently guaranteed a well-spread field, and once real randomness\n         arrived, some layouts left regions with no contour lines at all. Measured on\n         the 8x5 coverage grid (\"near-empty\" = under 0.6% ink):\n             independent uniform placement   5 failures in 12 seeds (up to 3 cells)\n             stratified placement alone      6 failures in 24 seeds (down to 0.00%)\n         Stratification fixes clumping but cannot fix the real mechanism: lines\n         appear only where the field CROSSES one of the 21 fixed levels, so a region\n         that is locally flat between two levels is blank no matter how the bumps\n         sit. Forcing a gradient steep enough to guarantee a crossing per cell would\n         take ~9.5 parallel lines across the width, which reads as stripes, not\n         terrain -- so distorting the field is the wrong lever.\n         Instead the candidate layout is CHECKED against the same invariant the test\n         asserts, and rejected if it fails. Each attempt is cheap (one field\n         evaluation on a coarse grid, no extraction, no drawing) and bounded, so the\n         worst case is a handful of evaluations at mount/resize time only.\n\n         The two halves are BOTH load-bearing, which was verified rather than\n         assumed -- with the validator in place but placement reverted to uniform,\n         4 of 8 loads exhausted the 12-attempt cap and shipped a fallback layout\n         (one run in four still rendered a blank cell). Stratification is what makes\n         an acceptable layout the common case: mean 2.5 candidates, max 6, never at\n         the cap. Validation is what makes it a guarantee. */\n      const attempts = 32\n      let best = null\n      for (let attempt = 0; attempt < attempts; attempt++) {\n        const cand = contourBuildCandidate(w, h, attempt)\n        const score = contourCoverageScore(cand, w, h)\n        if (best === null || score.worst > best.score.worst) best = { cand, score }\n        // Comfortably above the 0.6%-ink failure line, in field terms: every cell\n        // must contain a spread of values wider than one level gap, so at least one\n        // level is guaranteed to cross it.\n        if (score.ok) break\n      }\n      contourField = best.cand.field\n      contourGeom = { w, h, cols: best.cand.cols, rows: best.cand.rows, step: CONTOUR_STEP }\n    }\nconst contourBuildCandidate = (w, h, salt) => {\n      const step = CONTOUR_STEP\n      const cols = Math.ceil(w / step) + 1\n      const rows = Math.ceil(h / step) + 1\n      const K = 22                       // bump count: tuned to the reference's island density\n      const rnd = contourRng((contourSeed + salt * 0x9E3779B1) >>> 0)\n      const m = Math.min(w, h)\n      const bx = new Float32Array(K), by = new Float32Array(K)\n      const ba = new Float32Array(K), bs = new Float32Array(K)\n      const dx = new Float32Array(K), dy = new Float32Array(K)\n      /* STRATIFIED placement, not independent uniform draws.\n\n         Uniform sampling clumps: measured over 12 random seeds it left up to 3\n         near-empty cells. Jittered grid instead -- the viewport is cut into a\n         near-square lattice of at least K cells and each bump is placed at a random\n         point inside its own cell. That keeps placement random while making a large\n         empty patch geometrically impossible. Cells are ordered by a Fisher-Yates\n         shuffle so the bump INDEX carries no positional bias: index drives\n         amplitude, radius and drift below, and walking cells in raster order would\n         correlate \"left side of the screen\" with \"first sizes drawn\".\n         The lattice spans the same -0.1..1.1 over-scan as before, so islands are\n         still cut by the viewport edges rather than all sitting fully inside. */\n      const gx = Math.max(1, Math.round(Math.sqrt(K * (w / Math.max(1, h)))))\n      const gy = Math.max(1, Math.ceil(K / gx))\n      const cells = []\n      for (let j = 0; j < gy; j++) for (let i = 0; i < gx; i++) cells.push(i + j * gx)\n      for (let i = cells.length - 1; i > 0; i--) {\n        const j = Math.floor(rnd() * (i + 1))\n        const t = cells[i]; cells[i] = cells[j]; cells[j] = t\n      }\n      const spanX = 1.2 * w, spanY = 1.2 * h\n      for (let k = 0; k < K; k++) {\n        const cell = cells[k % cells.length]\n        const ci = cell % gx\n        const cj = Math.floor(cell / gx)\n        // Random point inside this cell, in the over-scanned -0.1..1.1 space.\n        bx[k] = -0.1 * w + ((ci + rnd()) / gx) * spanX\n        by[k] = -0.1 * h + ((cj + rnd()) / gy) * spanY\n        // Mixed sign gives peaks AND basins; equal signs would read as one blob.\n        ba[k] = (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.9)\n        bs[k] = (0.05 + rnd() * 0.09) * m\n        dx[k] = rnd() * 2 - 1\n        dy[k] = rnd() * 2 - 1\n      }\n      /* Base undulation: three long, low-amplitude sine ridges spanning the whole\n         viewport. Reason this exists, from reviewing the first render: a sum of\n         gaussians decays to EXACTLY zero between islands, so the field there is\n         perfectly flat, no level ever crosses it, and the result had large blank\n         patches that exposed the construction. Real terrain has no such voids. The\n         ridges are far too gentle to create islands of their own — they just tilt\n         the whole sheet enough that contour lines keep running through the gaps,\n         which is what turns isolated bullseyes into one continuous landscape. */\n      const W2 = new Float32Array(9)\n      for (let i = 0; i < 3; i++) {\n        W2[i * 3] = (0.35 + rnd() * 0.5) * (Math.PI * 2) / Math.max(1, w)  // x freq\n        W2[i * 3 + 1] = (0.35 + rnd() * 0.5) * (Math.PI * 2) / Math.max(1, h) // y freq\n        W2[i * 3 + 2] = rnd() * Math.PI * 2                                 // phase\n      }\n      const hCount = (cols - 1) * rows\n      const eCount = hCount + cols * (rows - 1)\n      const field = {\n        cols, rows, step, K, bx, by, ba, bs, dx, dy, hCount, W2,\n        F: new Float32Array(cols * rows),\n        previous: new Float32Array(cols * rows),\n        hasPrevious: false,\n        smooth: new Float32Array(cols * rows),\n        // Exact row-block bounds include both rows and the shared right vertex.\n        // They reject empty regions without changing retained cells or path order.\n        blockCols: Math.ceil((cols - 1) / 16),\n        blockMin: new Float32Array(Math.ceil((cols - 1) / 16) * (rows - 1)),\n        blockMax: new Float32Array(Math.ceil((cols - 1) / 16) * (rows - 1)),\n        boundsReady: false,\n        ex: new Float32Array(eCount),\n        ey: new Float32Array(eCount),\n        es: new Int32Array(eCount).fill(-1),\n        n1: new Int32Array(eCount).fill(-1),\n        n2: new Int32Array(eCount).fill(-1),\n        seen: new Int32Array(eCount).fill(-1),\n        touched: new Int32Array(eCount),\n        seq: 0,\n      }\n      return { field, cols, rows }\n    }\nconst contourCoverageScore = (cand, w, h) => {\n      const f = cand.field\n      // Evaluate at phase 0: the accepted layout must be sound as first painted.\n      const prev = contourField\n      contourField = f\n      contourEvaluate(0)\n      contourField = prev\n      const { cols, rows, F } = f\n      const GX = 8, GY = 5\n      const span = CONTOUR_SPAN\n      const levelStep = (span * 2) / CONTOUR_LEVELS\n      let worst = Infinity\n      let ok = true\n      for (let gy = 0; gy < GY; gy++) {\n        for (let gx = 0; gx < GX; gx++) {\n          const i0 = Math.floor(gx * (cols - 1) / GX), i1 = Math.ceil((gx + 1) * (cols - 1) / GX)\n          const j0 = Math.floor(gy * (rows - 1) / GY), j1 = Math.ceil((gy + 1) * (rows - 1) / GY)\n          let mn = Infinity, mx = -Infinity\n          for (let j = j0; j <= j1 && j < rows; j++) {\n            const row = j * cols\n            for (let i = i0; i <= i1 && i < cols; i++) {\n              const v = F[row + i]\n              if (v < mn) mn = v\n              if (v > mx) mx = v\n            }\n          }\n          // Clamp to the drawn level range: values beyond +/-SPAN produce no lines.\n          const lo = Math.max(mn, -span), hi = Math.min(mx, span)\n          // How many level boundaries fall inside this cell's clamped range.\n          const crossings = hi <= lo ? 0\n            : Math.floor(hi / levelStep) - Math.ceil(lo / levelStep) + 1\n          if (crossings < worst) worst = crossings\n          if (crossings < CONTOUR_MIN_CROSSINGS) ok = false\n        }\n      }\n      return { ok, worst }\n    }\nconst contourEvaluate = (phase) => {\n      const f = contourField\n      if (f !== null) f.boundsReady = false\n      if (f === null) return\n      const { cols, rows, step, K, bx, by, ba, bs, dx, dy, F, W2 } = f\n      /* Seed the sheet with the base undulation instead of zero, so the gaps\n         between islands still have a gradient for the levels to cross. Separable\n         evaluation: sin(a+b) is expanded so the y term is computed once per row\n         rather than once per cell, which keeps this pass cheap. */\n      const BASE = 0.62\n      for (let i = 0; i < 3; i++) {\n        const fx = W2[i * 3], fy = W2[i * 3 + 1], ph = W2[i * 3 + 2] + phase * 0.11\n        const amp = BASE / 3\n        for (let j = 0; j < rows; j++) {\n          const yb = fy * (j * step) + ph\n          const sy = Math.sin(yb), cy2 = Math.cos(yb)\n          const row = j * cols\n          for (let c2 = 0; c2 < cols; c2++) {\n            const xb = fx * (c2 * step)\n            // sin(xb + yb) without a per-cell sin() of the sum\n            const v = Math.sin(xb) * cy2 + Math.cos(xb) * sy\n            if (i === 0) F[row + c2] = amp * v\n            else F[row + c2] += amp * v\n          }\n        }\n      }\n      for (let k = 0; k < K; k++) {\n        const s = bs[k]\n        const amp = s * 0.55\n        const cx = bx[k] + Math.sin(phase * dx[k] + k * 1.7) * amp\n        const cy = by[k] + Math.cos(phase * dy[k] + k * 2.3) * amp\n        const a = ba[k]\n        const inv = 1 / (2 * s * s)\n        const rad = 2.6 * s\n        let i0 = Math.floor((cx - rad) / step)\n        let i1 = Math.ceil((cx + rad) / step)\n        let j0 = Math.floor((cy - rad) / step)\n        let j1 = Math.ceil((cy + rad) / step)\n        if (i0 < 0) i0 = 0\n        if (j0 < 0) j0 = 0\n        if (i1 > cols - 1) i1 = cols - 1\n        if (j1 > rows - 1) j1 = rows - 1\n        for (let j = j0; j <= j1; j++) {\n          const ddy = j * step - cy\n          const dy2 = ddy * ddy\n          const row = j * cols\n          for (let i = i0; i <= i1; i++) {\n            const ddx = i * step - cx\n            const q = (ddx * ddx + dy2) * inv\n            if (q < 6.76) {\n              let weight = Math.exp(-q)\n              if (q > 4.8) {\n                const t = (q - 4.8) / (6.76 - 4.8)\n                const fade = 1 - t * t * (3 - 2 * t)\n                weight *= fade\n              }\n              F[row + i] += a * weight\n            }\n          }\n        }\n      }\n      const smooth = f.smooth\n      for (let pass = 0; pass < 5; pass++) {\n        for (let j = 0; j < rows; j++) {\n          const row = j * cols\n          for (let i = 0; i < cols; i++) {\n            const left = F[row + Math.max(0, i - 1)]\n            const center = F[row + i]\n            const right = F[row + Math.min(cols - 1, i + 1)]\n            smooth[row + i] = (left + 2 * center + right) * 0.25\n          }\n        }\n        for (let j = 0; j < rows; j++) {\n          const row = j * cols\n          const up = Math.max(0, j - 1) * cols\n          const down = Math.min(rows - 1, j + 1) * cols\n          for (let i = 0; i < cols; i++) {\n            F[row + i] = (smooth[up + i] + 2 * smooth[row + i] + smooth[down + i]) * 0.25\n          }\n        }\n      }\n      /* Track the field continuously between animation samples. Marching squares\n         can change an entire path at once when a saddle crosses a level; blending\n         the sampled field keeps that topology change from appearing as a twitch. */\n      if (f.hasPrevious && f.previous !== undefined) {\n        for (let i = 0; i < F.length; i++) {\n          f.previous[i] = f.previous[i] * 0.65 + F[i] * 0.35\n          F[i] = f.previous[i]\n        }\n      } else if (f.previous !== undefined) {\n        f.previous.set(F)\n      }\n      f.hasPrevious = true\n    }\nconst contourExtractLevel = (L, out) => {\n      const f = contourField\n      const { cols, rows, step, F, ex, ey, es, n1, n2, seen, touched, hCount } = f\n      const st = ++f.seq\n      let tn = 0\n      const pt = (id, i0, j0, i1, j1) => {\n        if (es[id] === st) return id\n        const a = F[j0 * cols + i0]\n        const b = F[j1 * cols + i1]\n        let t = (L - a) / (b - a)\n        if (!(t >= 0)) t = 0\n        else if (t > 1) t = 1\n        ex[id] = (i0 + (i1 - i0) * t) * step\n        ey[id] = (j0 + (j1 - j0) * t) * step\n        es[id] = st\n        n1[id] = -1\n        n2[id] = -1\n        touched[tn++] = id\n        return id\n      }\n      const link = (a, b) => {\n        if (n1[a] < 0) n1[a] = b\n        else if (n2[a] < 0) n2[a] = b\n        if (n1[b] < 0) n1[b] = a\n        else if (n2[b] < 0) n2[b] = a\n      }\n      for (let j = 0; j < rows - 1; j++) {\n        const row = j * cols\n        for (let i = 0; i < cols - 1; i++) {\n          if (f.boundsReady && i % 16 === 0) {\n            const block = j * f.blockCols + Math.floor(i / 16)\n            if (L <= f.blockMin[block] || L > f.blockMax[block]) {\n              i = Math.min(i + 16, cols - 1) - 1\n              continue\n            }\n          }\n          const p0 = row + i\n          const p1 = p0 + 1\n          const p3 = p0 + cols\n          const p2 = p3 + 1\n          const v0 = F[p0], v1 = F[p1], v2 = F[p2], v3 = F[p3]\n          let mn = v0, mx = v0\n          if (v1 < mn) mn = v1; else if (v1 > mx) mx = v1\n          if (v2 < mn) mn = v2; else if (v2 > mx) mx = v2\n          if (v3 < mn) mn = v3; else if (v3 > mx) mx = v3\n          // Whole cell on one side of the level: nothing crosses it.\n          if (L <= mn || L > mx) continue\n          const idx = (v0 > L ? 1 : 0) | (v1 > L ? 2 : 0) | (v2 > L ? 4 : 0) | (v3 > L ? 8 : 0)\n          const T = () => pt(j * (cols - 1) + i, i, j, i + 1, j)\n          const B = () => pt((j + 1) * (cols - 1) + i, i, j + 1, i + 1, j + 1)\n          const Le = () => pt(hCount + j * cols + i, i, j, i, j + 1)\n          const Ri = () => pt(hCount + j * cols + i + 1, i + 1, j, i + 1, j + 1)\n          switch (idx) {\n            case 1: case 14: link(T(), Le()); break\n            case 2: case 13: link(T(), Ri()); break\n            case 3: case 12: link(Le(), Ri()); break\n            case 4: case 11: link(Ri(), B()); break\n            case 6: case 9: link(T(), B()); break\n            case 7: case 8: link(Le(), B()); break\n            // Ambiguous saddles use the bilinear asymptotic decider. The sign of\n            // a*c-b*d selects whether the diagonal high/low regions are connected;\n            // using the cell average alone is wrong when opposite corners differ in\n            // magnitude and produces the long V-shaped joins seen in the render.\n            case 5: {\n              const a = v0 - L, b = v1 - L, c = v2 - L, d = v3 - L\n              const saddle = a * c - b * d\n              if (saddle > 0) { link(T(), Ri()); link(Le(), B()) }\n              else { link(T(), Le()); link(Ri(), B()) }\n              break\n            }\n            case 10: {\n              const a = v0 - L, b = v1 - L, c = v2 - L, d = v3 - L\n              const saddle = a * c - b * d\n              if (saddle < 0) { link(T(), Le()); link(Ri(), B()) }\n              else { link(T(), Ri()); link(Le(), B()) }\n              break\n            }\n          }\n        }\n      }\n      const walk = (start) => {\n        const path = []\n        let cur = start\n        let prev = -1\n        for (;;) {\n          path.push(ex[cur], ey[cur])\n          seen[cur] = st\n          const a = n1[cur]\n          const b = n2[cur]\n          let nx = -1\n          if (a >= 0 && a !== prev && seen[a] !== st) nx = a\n          else if (b >= 0 && b !== prev && seen[b] !== st) nx = b\n          if (nx < 0) {\n            // Closed loop: step back onto the first point so the ring has no gap.\n            if ((a === start || b === start) && path.length > 4) path.push(ex[start], ey[start])\n            break\n          }\n          prev = cur\n          cur = nx\n        }\n        return path\n      }\n      /* Reject debris before it reaches the draw list. Judged on the path's\n         ON-CANVAS geometry, so an off-grid sliver with no visible pixels is\n         dropped even when its raw length looks respectable. See the note on\n         CONTOUR_MIN_LEN / CONTOUR_MIN_RING_BOX for the measurements behind both\n         thresholds. */\n      const W = contourGeom !== null ? contourGeom.w : 0\n      const H = contourGeom !== null ? contourGeom.h : 0\n      const keep = (p) => {\n        if (p.length < 8) return false\n        // Visible length, plus the bounding box of the part actually on screen.\n        let vis = 0\n        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity\n        let seenIn = false\n        for (let k = 0; k < p.length; k += 2) {\n          const x = p[k], y = p[k + 1]\n          const inside = x >= 0 && x <= W && y >= 0 && y <= H\n          if (inside) {\n            seenIn = true\n            if (x < minx) minx = x\n            if (x > maxx) maxx = x\n            if (y < miny) miny = y\n            if (y > maxy) maxy = y\n          }\n          if (k >= 2) {\n            const px2 = p[k - 2], py2 = p[k - 1]\n            const prevIn = px2 >= 0 && px2 <= W && py2 >= 0 && py2 <= H\n            if (inside && prevIn) {\n              const dx = x - px2, dy = y - py2\n              vis += Math.sqrt(dx * dx + dy * dy)\n            }\n          }\n        }\n        if (!seenIn) return false            // entirely off-canvas: pure debris\n        if (vis < CONTOUR_KEEP_LEN) return false\n        /* A tiny CLOSED ring is an apex bullseye and reads as a dot. Open chains of\n           the same extent are left alone: they are the visible corner of a stroke\n           that continues off-canvas, and clipping one would punch a hole in a line\n           the user can see running to the edge. */\n        const gapx = p[0] - p[p.length - 2]\n        const gapy = p[1] - p[p.length - 1]\n        const closed = (gapx * gapx + gapy * gapy) < 4\n        if (closed && (maxx - minx) < CONTOUR_KEEP_RING\n          && (maxy - miny) < CONTOUR_KEEP_RING) return false\n        return true\n      }\n      /* TANGENCY NEEDLES. Where a level runs nearly TANGENT to the field, the true\n         isoline has a smooth, very high curvature tip. Marching squares interpolates\n         linearly on a 10px grid, so it cannot represent that tip: it emits a hairpin\n         that goes out and comes straight back, with a BASE (the gap between the\n         apex's two neighbours) far narrower than the 1px stroke. Measured on the real\n         output, worst case: apex 6.26px out from a base of 0.831px.\n\n         At that width the outbound and return strokes paint the SAME pixels, so the\n         pair does not read as a narrow valley — only the protruding whisker shows,\n         which is precisely the \"irregular sharp angle\" in issue #3. Smoothing cannot\n         help: the midpoint spline faithfully reproduces a feature that is genuinely\n         in the geometry, so it has to be removed here, at the source.\n\n         The whole hairpin is collapsed (see the note on the merge below). Both tests\n         are required and were measured over 24 frames (152.6k vertices, 1.18Mpx of\n         ink):\n           base < 2px   the stroke cannot resolve it (a 1px line is ~1px wide)\n           turn > 90    it doubles back rather than merely turning a corner\n         That is 0.7 vertices per frame and 0.0037% of total ink -- artifact removal,\n         not thinning. Real narrow features are untouched: turns over 90 degrees have\n         a median base of 4.03px, well clear of the cutoff, and the whole 8-12px base\n         band (29562 vertices) has a p99 turn of only 21.7 degrees. */\n      const deneedle = (p) => {\n        const n = p.length / 2\n        if (n < 4) return p\n        /* Scan first and return the ORIGINAL array when there is nothing to do, so\n           the overwhelmingly common path allocates nothing at 24fps. */\n        let found = false\n        for (let k = 1; k < n - 1; k++) {\n          const bx = p[(k + 1) * 2] - p[(k - 1) * 2]\n          const by = p[(k + 1) * 2 + 1] - p[(k - 1) * 2 + 1]\n          if (bx * bx + by * by >= 4) continue          // base >= 2px: keep\n          const ax = p[k * 2] - p[(k - 1) * 2]\n          const ay = p[k * 2 + 1] - p[(k - 1) * 2 + 1]\n          const cx = p[(k + 1) * 2] - p[k * 2]\n          const cy = p[(k + 1) * 2 + 1] - p[k * 2 + 1]\n          // turn > 90 degrees <=> the two segment vectors point against each other.\n          if (ax * cx + ay * cy < 0) { found = true; break }\n        }\n        if (!found) return p\n        const gx = p[0] - p[(n - 1) * 2]\n        const gy = p[1] - p[(n - 1) * 2 + 1]\n        const closed = (gx * gx + gy * gy) < 4\n        /* COLLAPSE THE WHOLE NEEDLE, not just its tip. Dropping the apex alone leaves\n           the base itself as a real segment, and that was measured to be worse than\n           the disease: a 0.831px stub inherits the reversal as TWO ~78-degree turns\n           (10.20 -> 0.83 -> 10.25px). The apex AND its far neighbour are therefore\n           both consumed, and the surviving previous vertex is pulled onto the base\n           midpoint -- a sub-pixel move (half of at most 2px) that no 1px stroke can\n           show, leaving one smooth vertex where the hairpin was.\n           Each test uses the SURVIVING previous vertex, so a run of needles collapses\n           progressively instead of each test being fooled by a neighbour that is\n           itself about to be consumed. */\n        const q = [p[0], p[1]]\n        let k = 1\n        while (k < n - 1) {\n          const px = q[q.length - 2], py = q[q.length - 1]\n          const bx = p[(k + 1) * 2] - px, by = p[(k + 1) * 2 + 1] - py\n          if (bx * bx + by * by < 4) {\n            const ax = p[k * 2] - px, ay = p[k * 2 + 1] - py\n            const cx = p[(k + 1) * 2] - p[k * 2], cy = p[(k + 1) * 2 + 1] - p[k * 2 + 1]\n            if (ax * cx + ay * cy < 0) {\n              if (k + 1 < n - 1) {\n                q[q.length - 2] = (px + p[(k + 1) * 2]) / 2\n                q[q.length - 1] = (py + p[(k + 1) * 2 + 1]) / 2\n                k += 2\n                continue\n              }\n              // The far neighbour is the final vertex, which must survive to keep an\n              // endpoint (or a ring's closure) intact: consume only the apex.\n              k += 1\n              continue\n            }\n          }\n          q.push(p[k * 2], p[k * 2 + 1])\n          k += 1\n        }\n        q.push(p[(n - 1) * 2], p[(n - 1) * 2 + 1])\n        /* A ring is closed by REPEATING its start vertex, and the merge above may have\n           nudged that start. Re-anchor the repeat so the ring stays exactly closed and\n           both keep() and the cyclic draw path still classify it as one. */\n        if (closed) {\n          q[q.length - 2] = q[0]\n          q[q.length - 1] = q[1]\n        }\n        return q\n      }\n      // Open chains first (they have a free end), then whatever remains is a loop.\n      // Doing it in this order stops a ring being entered mid-way and split in two.\n      for (let k = 0; k < tn; k++) {\n        const id = touched[k]\n        if (seen[id] !== st && n2[id] < 0) {\n          const p = deneedle(walk(id))\n          if (keep(p)) out.push(p)\n        }\n      }\n      for (let k = 0; k < tn; k++) {\n        const id = touched[k]\n        if (seen[id] !== st) {\n          const p = deneedle(walk(id))\n          if (keep(p)) out.push(p)\n        }\n      }\n    }\nconst contourExtract = (phase, trailPoints, trailNow) => {\n      if (contourField === null) return\n      contourEvaluate(phase)\n      if (trailPoints && trailPoints.length) contourOverlayTrail(contourField, trailPoints, trailNow)\n      const f = contourField\n      // One O(cells) range pass is shared by all 21 extraction levels. Scratch\n      // survives across frames; no resolution, smoothing or density is reduced.\n      for (let j = 0; j < f.rows - 1; j++) {\n        const row = j * f.cols\n        for (let block = 0; block < f.blockCols; block++) {\n          const begin = block * 16\n          const end = Math.min(begin + 16, f.cols - 1)\n          let min = Infinity, max = -Infinity\n          for (let i = begin; i <= end; i++) {\n            const a = f.F[row + i], b = f.F[row + f.cols + i]\n            if (a < min) min = a\n            if (a > max) max = a\n            if (b < min) min = b\n            if (b > max) max = b\n          }\n          const k = j * f.blockCols + block\n          f.blockMin[k] = min\n          f.blockMax[k] = max\n        }\n      }\n      f.boundsReady = true\n      contourPaths = []\n      const span = CONTOUR_SPAN\n      const stepL = (span * 2) / CONTOUR_LEVELS\n      for (let n = 0; n <= CONTOUR_LEVELS; n++) {\n        contourExtractLevel(-span + n * stepL, contourPaths)\n      }\n    }\nconst contourDrawLines = () => {\n      if (contourLineCv === null || contourGeom === null) return\n      const ctx = contourLineCv.getContext('2d')\n      if (!ctx) return\n      const { w, h } = contourGeom\n      /* Geometry stays in CSS px; scale the context to the backing store that\n         contourSizeTo sized at (capped) devicePixelRatio, so strokes rasterise\n         at device resolution instead of being upsampled into blur on HiDPI\n         screens. Derived from the canvas itself, and skipped entirely at a 1x\n         store or when the context has no setTransform (the spliced-in test\n         harnesses), so a 1x render is byte-identical to before. */\n      const scale = (w > 0 && typeof contourLineCv.width === 'number' && contourLineCv.width > 0 && contourLineCv.width !== w)\n        ? contourLineCv.width / w : 1\n      if (scale !== 1 && typeof ctx.setTransform === 'function') ctx.setTransform(scale, 0, 0, scale, 0, 0)\n      ctx.clearRect(0, 0, w, h)\n      ctx.strokeStyle = contourStroke()\n      ctx.lineWidth = 1\n      ctx.lineJoin = 'round'\n      /* Marching squares emits one vertex per grid-cell edge. Three Chaikin passes\n         cut local corners before the clamped cubic B-spline rounds broad bends.\n         This reduces angularity without changing the field or adding another\n         extraction pass. Open endpoints remain fixed; closed rings wrap cyclically. */\n      const smoothPath = (source) => {\n        const count = source.length / 2\n        if (count < 3) return source\n        let points = []\n        for (let k = 0; k < source.length; k += 2) points.push([source[k], source[k + 1]])\n        const closed = (points[0][0] - points[points.length - 1][0]) ** 2\n          + (points[0][1] - points[points.length - 1][1]) ** 2 < 4\n        if (closed) points.pop()\n        for (let pass = 0; pass < 3; pass++) {\n          const next = []\n          const limit = closed ? points.length : points.length - 1\n          if (!closed) next.push(points[0])\n          for (let k = 0; k < limit; k++) {\n            const a = points[k]\n            const b = points[(k + 1) % points.length]\n            next.push([\n              a[0] * 0.75 + b[0] * 0.25,\n              a[1] * 0.75 + b[1] * 0.25,\n            ], [\n              a[0] * 0.25 + b[0] * 0.75,\n              a[1] * 0.25 + b[1] * 0.75,\n            ])\n          }\n          if (!closed) next.push(points[points.length - 1])\n          points = next\n        }\n        const result = []\n        for (const point of points) result.push(point[0], point[1])\n        if (closed) result.push(result[0], result[1])\n        return result\n      }\n      /* Chaikin removes local grid noise. A constrained Catmull-Rom cubic then\n         gives each join one shared tangent. The handle cap prevents overshoot at\n         narrow saddles while the larger tangent factor removes long rounded-polygon\n         bends that remain visible with midpoint quadratics. */\n      const drawSmoothPath = (target, source) => {\n        const count = source.length / 2\n        if (count < 3) {\n          target.moveTo(source[0], source[1])\n          for (let k = 2; k < source.length; k += 2) target.lineTo(source[k], source[k + 1])\n          return\n        }\n        const closed = (source[0] - source[source.length - 2]) ** 2\n          + (source[1] - source[source.length - 1]) ** 2 < 4\n        const limit = closed ? count - 1 : count\n        const point = (index) => {\n          const k = closed\n            ? (index + limit) % limit\n            : Math.max(0, Math.min(limit - 1, index))\n          return [source[k * 2], source[k * 2 + 1]]\n        }\n        const tangent = (index) => {\n          const current = point(index)\n          const previous = point(index - 1)\n          const next = point(index + 1)\n          let tx, ty, cap\n          const incomingX = current[0] - previous[0]\n          const incomingY = current[1] - previous[1]\n          const outgoingX = next[0] - current[0]\n          const outgoingY = next[1] - current[1]\n          if (!closed && index === 0) {\n            tx = outgoingX * 0.4\n            ty = outgoingY * 0.4\n            cap = Math.hypot(outgoingX, outgoingY) * 0.55\n          } else if (!closed && index === limit - 1) {\n            tx = incomingX * 0.4\n            ty = incomingY * 0.4\n            cap = Math.hypot(incomingX, incomingY) * 0.55\n          } else {\n            tx = (next[0] - previous[0]) * 0.32\n            ty = (next[1] - previous[1]) * 0.32\n            cap = Math.min(\n              Math.hypot(incomingX, incomingY),\n              Math.hypot(outgoingX, outgoingY),\n            ) * 0.62\n          }\n          const length = Math.hypot(tx, ty)\n          if (length > cap && length > 0) {\n            tx *= cap / length\n            ty *= cap / length\n          }\n          return [tx, ty]\n        }\n        target.moveTo(source[0], source[1])\n        const segments = closed ? limit : limit - 1\n        for (let k = 0; k < segments; k++) {\n          const start = point(k)\n          const end = point(k + 1)\n          const startTangent = tangent(k)\n          const endTangent = tangent(k + 1)\n          target.bezierCurveTo(\n            start[0] + startTangent[0], start[1] + startTangent[1],\n            end[0] - endTangent[0], end[1] - endTangent[1],\n            end[0], end[1],\n          )\n        }\n        /* Mark a ring as a RING. The cyclic tangents above already make the seam C1\n           and the final span already lands exactly on the start point, so this adds\n           no geometry — but without it the canvas treats the path as open and butts\n           two caps together at the seam instead of joining them, which is defect (2)\n           of issue #3. contour-cusps.test.js guards this. */\n        if (closed) target.closePath()\n      }\n      ctx.beginPath()\n      for (let i = 0; i < contourPaths.length; i++) drawSmoothPath(ctx, smoothPath(contourPaths[i]))\n      ctx.stroke()\n      /* The centre defocus repaints the same geometry through a wider, blurred brush; it\n         needs the two path helpers, so they are handed over rather than captured. */\n      contourBokehPass(ctx, w, h, scale)\n    }\n/* MIT; contributed by higekibaka. GPU stroke painter from Endfield Glass. */\nconst CURVE_TOLERANCE_PX = 0.04;\nconst STRIDE = 6;\nclass StrokeSegments {\n  data = new Float32Array(4096 * STRIDE);\n  used = 0;\n  tolerance = CURVE_TOLERANCE_PX;\n  x = 0;\n  y = 0;\n  startX = 0;\n  startY = 0;\n  first = 0;\n  reset() {\n    this.used = 0;\n    this.first = 0;\n  }\n  moveTo(x, y) {\n    this.x = this.startX = x;\n    this.y = this.startY = y;\n    this.first = this.used;\n  }\n  lineTo(x, y) {\n    if (x === this.x && y === this.y) return;\n    if (this.used + STRIDE > this.data.length) {\n      const next = new Float32Array(this.data.length * 2);\n      next.set(this.data);\n      this.data = next;\n    }\n    const i = this.used;\n    this.data[i] = this.x;\n    this.data[i + 1] = this.y;\n    this.data[i + 2] = x;\n    this.data[i + 3] = y;\n    this.data[i + 4] = i === this.first ? 1 : 0;\n    this.data[i + 5] = 1;\n    if (i > this.first) this.data[i - 1] = 0;\n    this.used += STRIDE;\n    this.x = x;\n    this.y = y;\n  }\n  closePath() {\n    this.lineTo(this.startX, this.startY);\n    if (this.used > this.first) {\n      this.data[this.first + 4] = 0;\n      this.data[this.used - 1] = 0;\n    }\n  }\n  bezierCurveTo(ax, ay, bx, by, x, y) {\n    this.cubic(this.x, this.y, ax, ay, bx, by, x, y, 0);\n  }\n  cubic(x0, y0, x1, y1, x2, y2, x3, y3, depth) {\n    const dx = x3 - x0, dy = y3 - y0, length2 = dx * dx + dy * dy;\n    const tolerance2 = this.tolerance * this.tolerance;\n    const t1 = length2 > 0 ? Math.max(0, Math.min(1, ((x1 - x0) * dx + (y1 - y0) * dy) / length2)) : 0;\n    const t2 = length2 > 0 ? Math.max(0, Math.min(1, ((x2 - x0) * dx + (y2 - y0) * dy) / length2)) : 0;\n    const e1x = x1 - x0 - t1 * dx, e1y = y1 - y0 - t1 * dy;\n    const e2x = x2 - x0 - t2 * dx, e2y = y2 - y0 - t2 * dy;\n    if (e1x * e1x + e1y * e1y <= tolerance2 && e2x * e2x + e2y * e2y <= tolerance2 || depth >= 16) {\n      this.lineTo(x3, y3);\n      return;\n    }\n    const a = (x0 + x1) / 2, b = (y0 + y1) / 2, c = (x1 + x2) / 2, d = (y1 + y2) / 2;\n    const e = (x2 + x3) / 2, f = (y2 + y3) / 2, g = (a + c) / 2, h = (b + d) / 2;\n    const i = (c + e) / 2, j = (d + f) / 2, k = (g + i) / 2, l = (h + j) / 2;\n    this.cubic(x0, y0, a, b, g, h, k, l, depth + 1);\n    this.cubic(k, l, i, j, e, f, x3, y3, depth + 1);\n  }\n}\nfunction parseStrokeColor(value) {\n  const m = value.match(/^rgba?\\(\\s*([\\d.]+)\\s*,\\s*([\\d.]+)\\s*,\\s*([\\d.]+)(?:\\s*,\\s*([\\d.]+))?\\s*\\)$/);\n  if (!m) return null;\n  const values = [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255, m[4] === void 0 ? 1 : Number(m[4])];\n  return values.every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ? values : null;\n}\nconst VERTEX = `#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 segment;\nlayout(location=1) in vec2 caps;\nuniform vec2 viewportSize;\nuniform vec2 scale;\nuniform float width;\nout vec2 local;\nflat out float segmentLength;\nflat out float radius;\nflat out vec2 endCaps;\nvoid main() {\n  vec2 a = segment.xy * scale, b = segment.zw * scale;\n  vec2 delta = b-a;\n  segmentLength = max(length(delta), 0.000001);\n  vec2 tangent = delta / segmentLength;\n  vec2 normal = vec2(-tangent.y, tangent.x);\n  radius = 0.5 * width * scale.x * scale.y * length(segment.zw-segment.xy) / segmentLength;\n  float margin = radius + 1.0;\n  // Two triangles per segment, generated without a second vertex buffer.\n  vec2 corners[6] = vec2[6](vec2(0,-1),vec2(1,-1),vec2(0,1),vec2(0,1),vec2(1,-1),vec2(1,1));\n  vec2 corner = corners[gl_VertexID];\n  local = vec2(mix(-margin, segmentLength+margin, corner.x), corner.y * margin);\n  vec2 pixel = a + tangent * local.x + normal * local.y;\n  gl_Position = vec4(pixel.x/viewportSize.x*2.0-1.0, 1.0-pixel.y/viewportSize.y*2.0, 0, 1);\n  endCaps = caps;\n}`;\nconst FRAGMENT = `#version 300 es\nprecision highp float;\nin vec2 local;\nflat in float segmentLength;\nflat in float radius;\nflat in vec2 endCaps;\nuniform vec4 color;\nout vec4 outputColor;\nvoid main() {\n  vec2 nearest = vec2(clamp(local.x, 0.0, segmentLength), 0);\n  float distance = length(local-nearest)-radius;\n  if (endCaps.x > 0.5) distance = max(distance, -local.x);\n  if (endCaps.y > 0.5) distance = max(distance, local.x-segmentLength);\n  float coverage = clamp(0.5-distance, 0.0, 1.0);\n  float alpha = color.a * coverage;\n  outputColor = vec4(color.rgb * alpha, alpha);\n}`;\nfunction createWebGLContourContext(canvas, onContextLost) {\n  const gl = canvas.getContext(\"webgl2\", {\n    alpha: true,\n    premultipliedAlpha: true,\n    antialias: false,\n    depth: false,\n    stencil: false,\n    preserveDrawingBuffer: false\n  });\n  if (!gl) return null;\n  let program = null;\n  let buffer = null;\n  let vao = null;\n  const shaders = [];\n  const events = canvas;\n  const lost = () => onContextLost?.();\n  const releaseContext = gl.getExtension(\"WEBGL_lose_context\");\n  const release = () => {\n    events.removeEventListener?.(\"webglcontextlost\", lost);\n    if (buffer) gl.deleteBuffer(buffer);\n    if (vao) gl.deleteVertexArray(vao);\n    if (program) gl.deleteProgram(program);\n    for (const shader of shaders) gl.deleteShader(shader);\n    buffer = null;\n    vao = null;\n    program = null;\n    shaders.length = 0;\n    releaseContext?.loseContext();\n  };\n  try {\n    const compile = (type, source) => {\n      const shader = gl.createShader(type);\n      if (!shader) throw new Error(\"WebGL shader allocation failed\");\n      shaders.push(shader);\n      gl.shaderSource(shader, source);\n      gl.compileShader(shader);\n      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(\"Contour shader: \" + gl.getShaderInfoLog(shader));\n      return shader;\n    };\n    const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);\n    program = gl.createProgram();\n    buffer = gl.createBuffer();\n    vao = gl.createVertexArray();\n    if (!program || !buffer || !vao) throw new Error(\"WebGL allocation failed\");\n    gl.attachShader(program, vs);\n    gl.attachShader(program, fs);\n    gl.linkProgram(program);\n    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(\"Contour shader link: \" + gl.getProgramInfoLog(program));\n    gl.useProgram(program);\n    gl.bindVertexArray(vao);\n    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);\n    gl.enableVertexAttribArray(0);\n    gl.vertexAttribPointer(0, 4, gl.FLOAT, false, STRIDE * 4, 0);\n    gl.vertexAttribDivisor(0, 1);\n    gl.enableVertexAttribArray(1);\n    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, STRIDE * 4, 16);\n    gl.vertexAttribDivisor(1, 1);\n    gl.disable(gl.DEPTH_TEST);\n    gl.disable(gl.CULL_FACE);\n    gl.disable(gl.DITHER);\n    gl.enable(gl.BLEND);\n    gl.blendEquation(gl.MAX);\n    gl.blendFunc(gl.ONE, gl.ONE);\n    const viewport = gl.getUniformLocation(program, \"viewportSize\");\n    const scaling = gl.getUniformLocation(program, \"scale\");\n    const color = gl.getUniformLocation(program, \"color\");\n    const width = gl.getUniformLocation(program, \"width\");\n    const segments = new StrokeSegments();\n    let sx = 1, sy = 1, capacity = 0, disposed = false;\n    const context = {\n      strokeStyle: \"rgba(16,17,16,0.16)\",\n      lineWidth: 1,\n      lineJoin: \"round\",\n      setTransform(a, b, c, d, e, f) {\n        if (b !== 0 || c !== 0 || e !== 0 || f !== 0 || a <= 0 || d <= 0) throw new Error(\"Unsupported contour transform\");\n        sx = a;\n        sy = d;\n        segments.tolerance = CURVE_TOLERANCE_PX / Math.max(sx, sy);\n      },\n      clearRect() {\n        if (disposed || gl.isContextLost()) throw new Error(\"Contour WebGL context lost\");\n        gl.viewport(0, 0, canvas.width, canvas.height);\n        gl.clearColor(0, 0, 0, 0);\n        gl.clear(gl.COLOR_BUFFER_BIT);\n      },\n      beginPath: () => segments.reset(),\n      moveTo: (x, y) => segments.moveTo(x, y),\n      lineTo: (x, y) => segments.lineTo(x, y),\n      bezierCurveTo: (a, b, c, d, e, f) => segments.bezierCurveTo(a, b, c, d, e, f),\n      closePath: () => segments.closePath(),\n      stroke() {\n        const rgba = parseStrokeColor(context.strokeStyle);\n        if (!rgba) throw new Error(\"Unsupported contour stroke color\");\n        if (segments.used === 0) {\n          gl.flush();\n          return;\n        }\n        gl.uniform2f(viewport, canvas.width, canvas.height);\n        gl.uniform2f(scaling, sx, sy);\n        gl.uniform4fv(color, rgba);\n        gl.uniform1f(width, context.lineWidth);\n        if (capacity < segments.data.byteLength) {\n          capacity = segments.data.byteLength;\n          gl.bufferData(gl.ARRAY_BUFFER, capacity, gl.STREAM_DRAW);\n        }\n        gl.bufferSubData(gl.ARRAY_BUFFER, 0, segments.data, 0, segments.used);\n        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, segments.used / STRIDE);\n        gl.flush();\n      },\n      dispose() {\n        if (disposed) return;\n        disposed = true;\n        segments.data = new Float32Array(0);\n        segments.used = 0;\n        release();\n      }\n    };\n    events.addEventListener?.(\"webglcontextlost\", lost);\n    return context;\n  } catch (error) {\n    release();\n    throw error;\n  }\n}\n\nself.onmessage = ({data}) => {\n  try {\n    if (data.type === 'init') {\n      if (canvas !== null) throw new Error('duplicate worker init')\n      canvas = data.canvas; contourSeed = data.seed\n      painter = createWebGLContourContext(canvas, () => self.postMessage({type:'error',message:'WebGL context lost'}))\n      rasterizer = painter ? 'worker-webgl2' : 'worker-canvas2d'\n      if (!painter) painter = canvas.getContext('2d', {willReadFrequently:true})\n      if (!painter) throw new Error('worker canvas unavailable')\n      contourLineCv = {getContext:()=>painter, get width(){return canvas.width},get height(){return canvas.height}}\n      self.postMessage({type:'initialized',rasterizer})\n    } else if (data.type === 'frame') {\n      if (!canvas || !painter) throw new Error('worker not initialized')\n      const {w,h,dpr,phase,geometry,color,seq}=data\n      if (![w,h,dpr,phase,seq].every(Number.isFinite) || w<1 || h<1 || dpr<=0 || dpr>2\n        || Math.round(w*dpr)*Math.round(h*dpr)>8000000 || !/^#[0-9a-f]{8}$/i.test(color)) throw new Error('invalid frame')\n      const resized = !contourGeom || contourGeom.w!==w || contourGeom.h!==h\n      if (resized) contourBuild(w,h)\n      const width=Math.round(w*dpr),height=Math.round(h*dpr)\n      if(canvas.width!==width)canvas.width=width\n      if(canvas.height!==height)canvas.height=height\n      const c=color.slice(1)\n      stroke=`rgba(${parseInt(c.slice(0,2),16)},${parseInt(c.slice(2,4),16)},${parseInt(c.slice(4,6),16)},${parseInt(c.slice(6,8),16)/255})`\n      if(geometry || resized)contourExtract(phase)\n      painter.setTransform(1,0,0,1,0,0)\n      contourDrawLines()\n      self.postMessage({type:'painted',seq,rasterizer})\n    } else if (data.type === 'dispose') {\n      if(painter && painter.dispose)painter.dispose()\n      contourField=null;contourPaths=[];painter=null;canvas=null\n      self.close()\n    }\n  } catch(error) { self.postMessage({type:'error',message:String(error.message || error)}) }\n}\nself.postMessage({type:'ready'})\n"
     /* END GENERATED CONTOUR WORKER */
     const onContourVisibility = () => {
       if (document.hidden && contourWorker) contourWorker.pending = null
@@ -4034,8 +4367,26 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       /* The composer seat fades content out behind the input with a gradient to
          bg-base. Left alone it would show as an opaque band cutting across the
          sheet, so it fades to the base colour with alpha instead — same visual
-         falloff, but the contour stays continuous underneath. */
-      [class*='_frame']:has(> [data-endfield-contour]) [class$='_composerSeat'] {
+         falloff, but the contour stays continuous underneath.
+
+         PHASE-SCOPED, and that scoping is the fix for the hero "black band".
+         Upstream paints this gradient on the seat ONLY while a conversation is
+         live:
+             .<hash>_root[data-phase=active] .<hash>_composerSeat { ... }
+         On the empty hero page (data-phase=hero) the seat carries NO background
+         at all — but this rule used to match EVERY phase, so the theme added one.
+         A linear-gradient's LAST stop keeps painting to the end of the box, and
+         the hero seat is not the 36px sticky strip it is in a live conversation:
+         it is the whole centred hero block (headline + workspace row + composer,
+         ~240px). So 82% of --dsw-alias-bg-base flooded all of it — a solid dark
+         slab across the middle of the page in dark mode (#101110), i.e. the
+         reported "strange black band", and a slab that hides the contour sheet,
+         which is exactly what this rule was written to avoid.
+         Mirrored to upstream's own two selectors (standalone column + embedded
+         body), hash-free like the rest of the sheet. */
+      [class*='_frame']:has(> [data-endfield-contour])
+        :is([class$='_root'][data-phase='active'], [class$='_embeddedBody'][data-content-phase='active'])
+        [class$='_composerSeat'] {
         background: linear-gradient(180deg,
           rgba(0, 0, 0, 0) 0px,
           color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent) 36px) !important;
@@ -4627,6 +4978,59 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       body[data-ds-dark-theme] [class*='_heroGlow'] ellipse {
         fill-opacity: var(--edge-glow-dark) !important;
+      }
+      /* ---------- Hero backdrop glow, now OWNED by the theme ----------
+         The hook above is dead in both directions on 0.2.0-rc.2: upstream did not
+         merely rehash HeroGlow, it deleted the element (ConversationRoot renders
+         no backdrop at all — a full scan of dsh-client-ui-conversation for
+         'heroGlow' / 'linear-gradient' / 'radial-gradient' finds no backdrop, and
+         'Glow' / 'feGaussianBlur' / the old fill '#6187D8' no longer exist anywhere
+         in @deepseek-ai). Nothing upstream paints that haze any more, so restyling
+         a node that is never rendered kept the hero flat — the reported "the glow
+         in the middle is gone". A hook cannot bring back a removed element, so the
+         theme draws the backdrop itself on the one hero element that survives
+         renames: HeroShell's wrapper inside the hero composer ('*_composerHero',
+         already a stacking context via its z-index:1 as a flex item).
+
+         Geometry and strength are the MEASURED ones from false above, not new
+         choices: a 135% -of-column-width ellipse (left/right -17.5%) whose centre
+         sits 92px above the composer card's bottom edge (height 190px, bottom 30px
+         against the wrapper's 32px padding-bottom), at --edge-glow-light in light
+         and --edge-glow-dark in dark — the same per-scheme alphas that reproduce
+         the depth of the #6187D8 glow the theme originally matched, including the
+         cyan palette's 0.04 (both variables are declared on body beside the accent).
+
+         Drawn as a radial-gradient rather than a blurred ellipse on purpose: this
+         sheet's own rule for the frost layer forbids full-window blur and nested
+         filters, and a 135%-wide blur(50px) layer is exactly the paint cost the
+         theme avoids. The plateau-then-falloff stops approximate the former
+         feGaussianBlur stdDeviation 50 shape at no filter cost.
+
+         z-index:-1 keeps it behind the headline, the workspace row and the
+         composer card it sits under, inside composerHero's own stacking context —
+         so it still paints ABOVE the contour sheet (z-index:0 in the frame) and
+         below the hero's content, which is where the removed element used to be. */
+      [class$='_composerHero'] {
+        position: relative;
+      }
+      [class$='_composerHero']::before {
+        content: '';
+        position: absolute;
+        z-index: -1;
+        left: -17.5%;
+        right: -17.5%;
+        bottom: 30px;
+        height: 190px;
+        pointer-events: none;
+        opacity: var(--edge-glow-light);
+        background: radial-gradient(50% 50% at 50% 50%,
+          var(--edge-signal, var(--edge-accent)) 0%,
+          var(--edge-signal, var(--edge-accent)) 38%,
+          color-mix(in srgb, var(--edge-signal, var(--edge-accent)) 42%, transparent) 66%,
+          rgba(0, 0, 0, 0) 100%);
+      }
+      body[data-ds-dark-theme] [class$='_composerHero']::before {
+        opacity: var(--edge-glow-dark);
       }
       /* Brand wordmark HARNESS chip: signal-yellow box + black letters (both modes) */
       body {
@@ -5326,6 +5730,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     `)
       syncRadiusMode()
       syncGlass()
+      syncBokeh()
       syncPaletteClass()
     }
     const unmount = () => {
@@ -5344,6 +5749,10 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
            stored preference is untouched, so re-enabling restores it. */
         document.body.classList.remove(PALETTE_CLASS)
         document.body.removeAttribute?.('data-endfield-glass')
+        // Both bokeh attributes go with the stylesheet that gives them meaning,
+        // the same way the frost attribute does.
+        document.body.removeAttribute?.(BOKEH_ATTR)
+        document.body.removeAttribute?.(BOKEH_WASH_ATTR)
       }
       // The plate is styled by the theme stylesheet just torn down — an orphaned
       // plate would sit there as an unstyled black-less div, so drop it too.
@@ -5405,6 +5814,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         // These sync helpers read the store on each call, so no snapshot passing.
         syncRadiusMode()
         syncGlass()
+        syncBokeh()
         syncPaletteClass()
         syncWatermarkVisibility()
         syncContour()
@@ -5482,8 +5892,14 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       contourAnimHintReduced: '系统已开启「减少动态效果」，当前保持静态',
       glassRow: '磨砂玻璃', glassHint: '仅输入框和停靠面板使用局部模糊；侧栏保持静态质感',
       glassOff: '关闭', glassSubtle: '轻度', glassStandard: '标准', glassStrong: '浓厚',
+      bokehRow: '中央散景', bokehHint: '首页以画面中心为圆心虚化；对话中沿对话列中轴线向两侧虚化，向外过渡回清晰',
+      bokehNeedLayer: '需先开启等高线',
+      bokehOff: '关闭', bokehSubtle: '轻微', bokehStandard: '标准', bokehStrong: '强烈',
+      bokehWashRow: '散景压暗', bokehWashHint: '在虚化区域内进一步淡化等高线',
+      bokehWashNeedBlur: '需先把中央散景设为非关闭',
+      bokehWashOff: '关闭', bokehWashSubtle: '轻微', bokehWashStandard: '标准', bokehWashStrong: '强烈',
       contourRendererRow: '等高线绘制', contourRendererCanvas: 'Canvas', contourRendererWorker: 'Worker / WebGL',
-      contourRendererHint: '实验性后台绘制；不支持时自动回退，适合对照滚动性能',
+      contourRendererHint: '实验性后台绘制；不支持时自动回退，适合对照滚动性能', contourRendererHintBokeh: '中央散景已开启，等高线实际由主线程 Canvas 绘制（Worker 无法执行虚化）；把中央散景设为「关闭」即可恢复 Worker',
       contourFpsRow: '动态帧率',
       contourFpsHint: '选择等高线动画的刷新档位',
       contourFpsUnit: 'FPS',
@@ -5627,8 +6043,14 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       contourAnimHintReduced: 'Your system asks for reduced motion, so it stays static',
       glassRow: 'Frosted glass', glassHint: 'Local blur on the composer and docked panel; static sidebar texture',
       glassOff: 'Off', glassSubtle: 'Subtle', glassStandard: 'Standard', glassStrong: 'Strong',
+      bokehRow: 'Centre defocus', bokehHint: 'A radial defocus on the centre of the start page; along the conversation column\'s centre line, off to both sides, once a conversation is running',
+      bokehNeedLayer: 'Needs the contour sheet',
+      bokehOff: 'Off', bokehSubtle: 'Subtle', bokehStandard: 'Standard', bokehStrong: 'Strong',
+      bokehWashRow: 'Defocus dimming', bokehWashHint: 'Fades the sheet further inside the defocused area',
+      bokehWashNeedBlur: 'Needs a non-off defocus level',
+      bokehWashOff: 'Off', bokehWashSubtle: 'Subtle', bokehWashStandard: 'Standard', bokehWashStrong: 'Strong',
       contourRendererRow: 'Contour renderer', contourRendererCanvas: 'Canvas', contourRendererWorker: 'Worker / WebGL',
-      contourRendererHint: 'Experimental background rendering with automatic fallback; compare scrolling on your device',
+      contourRendererHint: 'Experimental background rendering with automatic fallback; compare scrolling on your device', contourRendererHintBokeh: 'Centre defocus is on, so the sheet is drawn by the main-thread Canvas (the worker cannot apply it); set it to Off to use the worker again',
       contourFpsRow: 'Animation frame rate',
       contourFpsHint: 'Choose the contour animation refresh rate',
       contourFpsUnit: 'FPS',
@@ -5792,6 +6214,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           const [thunderAnim, setThunderAnim] = R.useState(isThunderAnimOn())
           const [palette, setPalette] = R.useState(readPalette())
           const [glass, setGlass] = R.useState(readGlass())
+          const [bokeh, setBokeh] = R.useState(readBokeh())
+          const [bokehWash, setBokehWash] = R.useState(readBokehWash())
           const [mode, setMode] = R.useState(prefsGet(RADIUS_KEY) || 'square')
           /* 音频通知 is a HOST feature: the browser only owns its switches and
              the preview buttons. `hostState` mirrors what the host half reports
@@ -5859,6 +6283,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
               setThunderAnim(isThunderAnimOn())
               setPalette(readPalette())
               setGlass(readGlass())
+              setBokeh(readBokeh())
+              setBokehWash(readBokehWash())
               setMode(prefsGet(RADIUS_KEY) || 'square')
               /* The 音频 rows seed themselves from the same store, so they are
                  re-derived here as well — the section can arrive after the
@@ -5932,6 +6358,22 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
             prefsSet(GLASS_KEY, value)
             setGlass(value)
             syncGlass()
+          }
+          /* Read through the store like every other handler here, never the React
+             state variable: the two can disagree while the section is still
+             loading, and the write has to carry the value the store actually
+             holds (see the long note on the toggles below). */
+          const setBokehValue = (value) => {
+            if (!BOKEH_OPTIONS.includes(value)) return
+            prefsSet(BOKEH_KEY, value)
+            setBokeh(value)
+            syncBokeh()
+          }
+          const setBokehWashValue = (value) => {
+            if (!BOKEH_OPTIONS.includes(value)) return
+            prefsSet(BOKEH_WASH_KEY, value)
+            setBokehWash(value)
+            syncBokeh()
           }
           const setContourRendererValue = (value) => {
             if (value !== 'canvas' && value !== 'worker-webgl') return
@@ -6331,7 +6773,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
               ]),
               row('contour-renderer', false, [
                 R.createElement('span', { style: labelStyle }, t('contourRendererRow'),
-                  R.createElement('span', { style: hintStyle }, t('contourRendererHint'))),
+                  R.createElement('span', { style: hintStyle }, t(bokehNeedsMainThread() ? 'contourRendererHintBokeh' : 'contourRendererHint'))),
                 R.createElement('select', { 'aria-label': t('contourRendererRow'), value: contourRenderer,
                   onChange: (event) => setContourRendererValue(event.target.value),
                   style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
@@ -6371,7 +6813,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                   }, t(speed === 1 ? 'contourSpeedSlow' : speed === 4 ? 'contourSpeedFast' : 'contourSpeedNormal')))
                 )
               ]),
-              row('contour-scroll-pause', true, [
+              row('contour-scroll-pause', false, [
                 R.createElement('span', { style: labelStyle },
                   t('contourScrollPauseRow') + t('sep') + stateOf(contourScrollPause),
                   R.createElement('span', { style: hintStyle },
@@ -6385,6 +6827,48 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                   disabled: !contourOn,
                   title: contourOn ? '' : t('contourAnimNeedLayer'),
                 }, t(contourScrollPause ? 'contourScrollPauseOff' : 'contourScrollPauseOn'))
+              ]),
+              /* 中央散景: the two levels that steer how the sheet reads in the
+                 middle of the conversation column. Both are selects like the frost
+                 row, both are disabled without the layer they modify, and both say
+                 so in their hint rather than just greying out. */
+              row('bokeh', false, [
+                R.createElement('span', { style: labelStyle },
+                  t('bokehRow') + t('sep') + t({ off: 'bokehOff', subtle: 'bokehSubtle', standard: 'bokehStandard', strong: 'bokehStrong' }[bokeh]),
+                  R.createElement('span', { style: hintStyle },
+                    contourOn ? t('bokehHint') : t('bokehNeedLayer')
+                  )
+                ),
+                R.createElement('select', {
+                  'aria-label': t('bokehRow'), value: bokeh,
+                  onChange: (event) => setBokehValue(event.target.value),
+                  disabled: !contourOn,
+                  title: contourOn ? '' : t('bokehNeedLayer'),
+                  style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
+                    border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px',
+                    opacity: contourOn ? 1 : 0.45 },
+                }, BOKEH_OPTIONS.map((value) => R.createElement('option', { key: value, value },
+                  t({ off: 'bokehOff', subtle: 'bokehSubtle', standard: 'bokehStandard', strong: 'bokehStrong' }[value]))))
+              ]),
+              row('bokeh-wash', false, [
+                R.createElement('span', { style: labelStyle },
+                  t('bokehWashRow') + t('sep') + t({ off: 'bokehWashOff', subtle: 'bokehWashSubtle', standard: 'bokehWashStandard', strong: 'bokehWashStrong' }[bokehWash]),
+                  R.createElement('span', { style: hintStyle },
+                    // The wash only exists on top of a live blur level, so say that
+                    // rather than letting a select that does nothing look broken.
+                    !contourOn ? t('bokehNeedLayer') : (bokeh === 'off' ? t('bokehWashNeedBlur') : t('bokehWashHint'))
+                  )
+                ),
+                R.createElement('select', {
+                  'aria-label': t('bokehWashRow'), value: bokehWash,
+                  onChange: (event) => setBokehWashValue(event.target.value),
+                  disabled: !contourOn || bokeh === 'off',
+                  title: !contourOn ? t('bokehNeedLayer') : (bokeh === 'off' ? t('bokehWashNeedBlur') : ''),
+                  style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
+                    border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px',
+                    opacity: (!contourOn || bokeh === 'off') ? 0.45 : 1 },
+                }, BOKEH_OPTIONS.map((value) => R.createElement('option', { key: value, value },
+                  t({ off: 'bokehWashOff', subtle: 'bokehWashSubtle', standard: 'bokehWashStandard', strong: 'bokehWashStrong' }[value]))))
               ]),
               row('watermark', false, [
                 R.createElement('span', { style: labelStyle }, t('watermarkRow') + t('sep') + stateOf(wmOn)),

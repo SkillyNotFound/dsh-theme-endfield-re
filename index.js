@@ -107,6 +107,8 @@ const FIELD_DEFAULTS = {
   enabled: '1',             // 终末地主题 —— default on
   palette: 'valley',        // 主题配色 —— 谷地黄 (walley default)
   glass: 'off',             // optional local frost; original material by default
+  bokeh: 'standard',        // 中央散景 —— 等高线在画面对话中轴线虚化 (off/subtle/standard/strong)
+  bokehWash: 'standard',    // 散景压暗 —— 虚化区域内进一步淡化等高线 (off/subtle/standard/strong)
   radius: 'square',         // 主题圆角 —— 直角
   contour: '0',             // 等高线背景 —— default off
   contourAnim: '1',         // 动态等高线 —— default on

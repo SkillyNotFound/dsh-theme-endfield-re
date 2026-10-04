@@ -84,6 +84,11 @@ const contourLineCv={ getContext:()=>({
   set lineWidth(v){}, get lineWidth(){return 1},
   set lineJoin(v){}, get lineJoin(){return 'round'},
 }) }
+// contourDrawLines() calls the centre-defocus pass (中央散景), which is
+// main-thread only and needs a real compositing surface. Same no-op the worker
+// template defines (src/contour-worker.js): the pass is skipped, the geometry
+// under test here is unaffected.
+const contourBokehPass=()=>{}
 ${grab('contourDrawLines')}
 return { build:contourBuild, extract:contourExtract, draw:contourDrawLines,
   rec:()=>REC, paths:()=>contourPaths }

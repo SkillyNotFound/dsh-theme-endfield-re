@@ -36,7 +36,8 @@
 const BROWSER_SETTINGS_SCOPE_SNIPPET = `
 var __endfieldFieldDefaults = {
   enabled:'1', palette:'valley', radius:'square', glass:'off', contour:'0', contourAnim:'1',
-  contourTrail:'0', contourFps:'24', contourSpeed:'2', contourRenderer:'canvas', contourScrollPause:'1', watermark:'1',
+  contourTrail:'0', contourFps:'24', contourSpeed:'2', contourRenderer:'canvas', contourScrollPause:'1',
+  bokeh:'standard', bokehWash:'standard', watermark:'1',
   watermarkPersist:'0', loader:'0', thunder:'0', thunderAnim:'0',
   audioEnabled:'0', audioVolume:'100', audioBoot:'1', audioTurnStart:'1', audioTurnDone:'1',
   audioAttention:'1', audioTurnFail:'1', audioDebounceMs:'2500', audioSoundDir:'',
@@ -53,6 +54,8 @@ var __endfieldKeyToField = {
   'dsh-theme-endfield-contour-renderer':'contourRenderer',
   'contourRenderer':'contourRenderer',
   'dsh-theme-endfield-contour-scroll-pause':'contourScrollPause',
+  'dsh-theme-endfield-bokeh':'bokeh',
+  'dsh-theme-endfield-bokeh-wash':'bokehWash',
   'dsh-theme-endfield-watermark':'watermark',
   'dsh-theme-endfield-watermark-persist':'watermarkPersist',
   'dsh-theme-endfield-loader':'loader', 'dsh-theme-endfield-thunder':'thunder',
