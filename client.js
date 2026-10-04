@@ -2652,15 +2652,22 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        (An earlier revision scaled by max(w,h), which on 16:9 puts the sharp boundary
        outside the frame and leaves nothing sharp anywhere.) */
     const BOKEH_STEPS = 3
+    /* Sigma in CSS px, plus the extent multiplier described above. Raised about 60% from
+       the first shipped values (1.5 / 2.5 / 3.5): at those the defocused band still read as
+       a slightly softer copy of the sharp line rather than as something actually out of
+       focus. Axis retention is 0.5/sqrt(0.25 + sigma^2), so this is now
+       19.6% / 12.4% / 8.3% of the crisp stroke. */
     const BOKEH_LEVELS = {
-      subtle: { blur: 1.5, soft: 0.55 },
-      standard: { blur: 2.5, soft: 0.80 },
-      strong: { blur: 3.5, soft: 1.10 },
+      subtle: { blur: 2.5, soft: 0.55 },
+      standard: { blur: 4, soft: 0.80 },
+      strong: { blur: 6, soft: 1.10 },
     }
     /* How much of the defocused ink the wash removes ON THE AXIS; each band scales that
        down toward the sharp boundary. Expressed as alpha, so the pass never needs to know
-       the page colour, and off leaves the defocused ink at full strength. */
-    const BOKEH_FADE = { off: 0, subtle: 0.15, standard: 0.35, strong: 0.6 }
+       the page colour, and off leaves the defocused ink at full strength. Raised together
+       with the sigmas, because the two compound on the axis: `standard` now keeps
+       12.4% * (1 - 0.5) = 6.2% of the crisp stroke and `strong` 8.3% * 0.25 = 2.1%. */
+    const BOKEH_FADE = { off: 0, subtle: 0.25, standard: 0.5, strong: 0.75 }
     /* Both readers go through the whitelists that the settings rows already use, so the
        panel and the rasteriser can never disagree about what a stored value means. */
     const readBokehFade = () => {

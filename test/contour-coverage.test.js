@@ -43,9 +43,14 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
 <script src="./client.js"></script>
 <script>
   /* The theme reads switches via the settingsScope seam (not localStorage). Seed
-     a fake binder: theme on, contour + animation on, loader off. */
+     a fake binder: theme on, contour + animation on, loader off.
+     中央散景 is switched OFF for the same reason as in contour-specks: it removes ink
+     from the centre of the sheet by design, and this file asserts that no region of
+     the CONTOUR GENERATOR is empty. With the defocus left on, the middle column
+     reads as "essentially no contour" — which is the pass working, not the
+     generator failing. */
   ${BROWSER_SETTINGS_SCOPE_SNIPPET}
-  var __prefs=__endfieldSettingsScope({ enabled:'1', loader:'0', contour:'1', contourAnim:'1' })
+  var __prefs=__endfieldSettingsScope({ enabled:'1', loader:'0', contour:'1', contourAnim:'1', bokeh:'off', bokehWash:'off' })
   const mod=window.__MOD__.factory(()=>null)
   mod.apply({get:(n)=>n==='theme'?{overrideTokens:()=>()=>{}}:(n==='settingsScope'?__prefs.binder:undefined),effect:(f)=>f()})
   document.body.appendChild(document.createElement('span'))
