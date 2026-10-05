@@ -209,6 +209,109 @@ if (openIdx < 0) {
       fail('no body.theme-endfield-wuling block — the palette switch would do nothing')
     }
 
+    /* --- 6b. composer bloom (输入框泛光) ---
+       Three things about the bloom are load-bearing, invisible in a screenshot, and
+       each of them was a reported defect or a measured trap at least once:
+
+       SHAPE must be the input box's own rectangle, not a box placed near it. The
+       bloom is the ::before of [data-composer-card] ? the app's own attribute on the
+       InputBar card div (the same hook the frost layer uses) ? with 'inset: 0' and
+       'border-radius: inherit', so it IS that box at whatever size the composer
+       currently is. The previous version was a radial-gradient ellipse on the
+       composer wrapper whose height and bottom offset were hard-coded from one
+       capture; it could not follow the card, and it read as a blob behind the layout
+       rather than as light coming off the input box. A wrapper-anchored box must not
+       come back: [class$='_composerHero']::before is therefore asserted ABSENT.
+
+       LAYERING must put it behind the card: 'z-index: -1'. The card is
+       position:relative with z-index:auto, so the pseudo joins composerHero's
+       stacking context, where a negative layer paints above that wrapper's background
+       (and thus above the contour sheet) and below every in-flow descendant.
+
+       The LADDER must be a strictly increasing set of multipliers around the shipped
+       default, and the default must live on the ATTRIBUTE-GATED block rather than on
+       body: an unrecognised stored value has to fall back to 标准, not to no bloom.
+
+       No width/height/centre numbers are checked any more, and that is a gain rather
+       than a loss: the old rule needed a width ceiling because a 135%-wide element
+       inside the hero's overflow-x:auto scroll container added a horizontal
+       scrollbar. A box-shadow's ink is NOT part of the scrollable overflow region,
+       so the shape change retires that whole class of bug. */
+    const bloomRule = /body\[data-endfield-glow\][^{]*\[data-composer-card\][^{]*::(?:before|after)\s*\{([^}]*)\}/.exec(stripped)
+    if (bloomRule === null) {
+      fail('no composer-bloom rule anchored to [data-composer-card] under body[data-endfield-glow]\n      '
+        + '-> the light must be painted ON the input box; a rule that targets the composer '
+        + 'wrapper instead cannot track the card and reads as a blob behind the layout')
+    } else {
+      const selector = bloomRule[0].slice(0, bloomRule[0].indexOf('{'))
+      const body = bloomRule[1]
+      const needs = [
+        ['inset', /(?:^|;)\s*inset\s*:\s*0/],
+        ['border-radius: inherit', /(?:^|;)\s*border-radius\s*:\s*inherit/],
+        ['z-index: -1', /(?:^|;)\s*z-index\s*:\s*-1/],
+      ]
+      for (const [label, re] of needs) {
+        if (re.test(body)) pass('composer bloom declares ' + label)
+        else fail('composer bloom is missing ' + label + '\n      '
+          + '-> inset:0 + border-radius:inherit is what makes its shape the input box, '
+          + 'and z-index:-1 is what keeps it behind the card instead of tinting it')
+      }
+      if (selector.includes('_composerHero')) {
+        pass('composer bloom is scoped to the hero composer')
+      } else {
+        fail('composer bloom is not scoped to [class$=\'_composerHero\']\n      '
+          + '-> unscoped, every running conversation gets a lit composer seat as well')
+      }
+    }
+    if (/\[class\$='_composerHero'\]::before/.test(stripped)) {
+      fail("a [class$='_composerHero']::before rule is back — the wrapper-anchored ellipse\n      "
+        + '-> that is the wrapper-anchored ellipse: its height and offset have to be '
+        + 'hard-coded, they go stale as soon as the composer grows a row, and the shape '
+        + 'stops being the input box')
+    } else {
+      pass('no wrapper-anchored ellipse is left behind')
+    }
+    const glowLevel = (level) => {
+      const m = new RegExp("body\\[data-endfield-glow='" + level + "'\\]\\s*\\{[^}]*--edge-glow-level\\s*:\\s*([0-9.]+)").exec(stripped)
+      return m === null ? null : Number(m[1])
+    }
+    const levels = { soft: glowLevel('soft'), standard: glowLevel('standard'), strong: glowLevel('strong') }
+    if (levels.soft === null || levels.standard === null || levels.strong === null) {
+      fail('the bloom ladder is incomplete: soft=' + levels.soft + ' standard=' + levels.standard + ' strong=' + levels.strong + '\n      '
+        + "-> each of body[data-endfield-glow='soft'|'standard'|'strong'] must set --edge-glow-level, "
+        + 'because the row writes the attribute and the stylesheet owns every number')
+    } else if (!(levels.soft < levels.standard && levels.standard < levels.strong)) {
+      fail('the bloom ladder is not strictly increasing: soft=' + levels.soft
+        + ' standard=' + levels.standard + ' strong=' + levels.strong)
+    } else if (levels.standard !== 1) {
+      fail('the shipped 标准 level is ' + levels.standard + ', not 1\n      '
+        + '-> 标准 is the strength the hero had before the row existed; a different base '
+        + 'silently re-grades every palette and both schemes')
+    } else {
+      pass('bloom ladder is increasing and the standard level is 1 (soft ' + levels.soft + ' / standard 1 / strong ' + levels.strong + ')')
+    }
+    const gated = /body\[data-endfield-glow\]\s*\{([^}]*)\}/.exec(stripped)
+    if (gated === null) {
+      fail('no body[data-endfield-glow] block ? the bloom has no palette/scheme base or level default')
+    } else {
+      const hasBase = /--edge-glow-base\s*:\s*var\(--edge-glow-light\)/.test(gated[1])
+      const hasDefault = /--edge-glow-level\s*:\s*1\b/.test(gated[1])
+      if (hasBase && hasDefault) {
+        pass('bloom base resolves per palette/scheme and the level defaults to 1')
+      } else {
+        fail('body[data-endfield-glow] must carry both --edge-glow-base: var(--edge-glow-light) '
+          + 'and --edge-glow-level: 1 (base=' + hasBase + ' default=' + hasDefault + ')\n      '
+          + '-> the base is what test/palette-contrast.test.js weighs, and the default is what '
+          + 'an unrecognised stored level falls back to')
+      }
+    }
+    if (/body\[data-endfield-glow\]\[data-ds-dark-theme\][^}]*--edge-glow-base\s*:\s*var\(--edge-glow-dark\)/.test(stripped)
+      || /body\[data-endfield-glow\]\[data-ds-dark-theme\][\s\S]{0,200}?--edge-glow-base\s*:\s*var\(--edge-glow-dark\)/.test(stripped)) {
+      pass('bloom base switches to the dark value in dark mode')
+    } else {
+      fail('the dark-mode bloom base is missing: body[data-endfield-glow][data-ds-dark-theme] must '
+        + 're-point --edge-glow-base at --edge-glow-dark')
+    }
     /* --- 7. the app's font TOKENS must not be redeclared anywhere ---
        Regression guard for a real shipped bug. The theme used to carry
            :root { --dsw-font-family: Arial, ...; --ds-font-family-code: ... }

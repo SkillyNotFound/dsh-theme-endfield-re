@@ -129,6 +129,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       palette: 'valley',
       radius: 'square',
       glass: 'off',
+      /* 输入框泛光 (composer bloom) — the rectangle of light behind the composer
+         card on the empty-conversation page. Shipped at 'standard', i.e. the
+         strength the hero had before this became a row; 'off' removes the
+         pseudo-element entirely rather than painting a transparent one. */
+      composerGlow: 'standard',
       /* 中央散景 (contour centre bokeh). Two named strengths rather than raw pixel
          values, for the same reason the frost layer uses names: the interesting
          numbers are not independent — the ellipse has to grow with the blur or the
@@ -206,6 +211,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       'dsh-theme-endfield-palette': 'palette',
       'dsh-theme-endfield-radius': 'radius',
       'dsh-theme-endfield-glass': 'glass',
+      'dsh-theme-endfield-composer-glow': 'composerGlow',
       'dsh-theme-endfield-bokeh': 'bokeh',
       'dsh-theme-endfield-bokeh-wash': 'bokehWash',
       'dsh-theme-endfield-contour': 'contour',
@@ -1162,6 +1168,24 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       const value = readGlass()
       if (isEnabled() && value !== 'off') document.body.setAttribute?.('data-endfield-glass', value)
       else document.body.removeAttribute?.('data-endfield-glass')
+    }
+    /* ---------- 输入框泛光 (composer bloom) ----------
+       The rectangle of light behind the composer card on the start page, and how
+       strong it is. Exactly the frost row's contract, on purpose: one attribute on
+       <body>, the stylesheet owns every number, `off` REMOVES the attribute so the
+       pseudo-element is never created, and an unrecognised stored value falls back
+       to the shipped default instead of silently switching the effect off. */
+    const GLOW_KEY = 'dsh-theme-endfield-composer-glow'
+    const GLOW_OPTIONS = ['off', 'soft', 'standard', 'strong']
+    const readComposerGlow = () => {
+      const value = prefsGet(GLOW_KEY)
+      return GLOW_OPTIONS.includes(value) ? value : 'standard'
+    }
+    const syncComposerGlow = () => {
+      if (typeof document === 'undefined' || document.body === null) return
+      const value = readComposerGlow()
+      if (isEnabled() && value !== 'off') document.body.setAttribute?.('data-endfield-glow', value)
+      else document.body.removeAttribute?.('data-endfield-glow')
     }
     /* ---------- 中央散景 (contour centre bokeh) ----------
        Same one-attribute pattern as the frost layer above: <body> carries the
@@ -4100,11 +4124,21 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         --edge-status-light-mid: #3f3600;
         --edge-status-dark: #fff500;
         --edge-status-dark-mid: #a08a00;
-        /* Hero backdrop glow alpha, per scheme. These are the measured values
-           from the note on that rule: the replacement must not change how deep
-           the hero reads compared with the app's own #6187D8 at 8%. */
-        --edge-glow-light: 0.08;
-        --edge-glow-dark: 0.05;
+        /* Hero backdrop glow alpha, per scheme. Raised from the 0.08/0.05 that
+           matched the app's own #6187D8 at 8%: on the empty-conversation page that
+           read as "the yellow glow is too small and too faint", and matching a
+           backdrop the theme replaced is not a goal in itself. The values are still
+           MEASURED, just against the new pair of surfaces the glow has to work on:
+             light — yellow is nearly luminance-neutral on cream (Y -2.1 per unit
+                     alpha), so alpha buys CHROMA, not brightness: at 0.15 the
+                     composited core is #E0E1C7 (blue channel 226 -> 199, -27).
+             dark  — every unit of alpha adds real luminance on near-black
+                     (Y +212.7 per unit), so the ceiling is much lower: 0.10 lands
+                     the core at #1C1C0F, Y +21.3 against the page (the old 0.05
+                     was Y +10.6). Doubling is the most this surface takes before
+                     the halo starts to read as a coloured block. */
+        --edge-glow-light: 0.15;
+        --edge-glow-dark: 0.10;
       }
       /* ---------- 武陵青 (teal-cyan, #14d0d0) ----------
          Only the palette changes here; paper, ink, borders and the semantic
@@ -4154,13 +4188,13 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
            away and read flatter). */
         --edge-status-dark-mid: #7ee7e7;
         /* Cyan carries real luminance where yellow is nearly neutral on cream, so
-           the glow alphas are measured rather than inherited. Both stay inside the
-           depth of the #6187D8 glow they replace (budget: light 9.90, dark 11.28).
-           Dark comes down from 0.05 to 0.04 because the brighter accent lifts a
-           near-black page faster: 0.05 now measures |ΔY| 7.6 where the old cyan
-           measured 6.0. */
-        --edge-glow-light: 0.08;
-        --edge-glow-dark: 0.04;
+           the glow alphas are measured rather than inherited. Light stays on the
+           scheme's 0.15 like the yellow palette (cyan is chroma-neutral and
+           luminance-modest there), dark comes down to 0.09: the brighter accent
+           lifts a near-black page faster, so the same 0.10 that the yellow palette
+           takes would read as the louder of the two. */
+        --edge-glow-light: 0.15;
+        --edge-glow-dark: 0.09;
       }
       /* Token-derived aliases. These MUST be on body, not :root — see above. */
       body {
@@ -4976,46 +5010,75 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
          renames: HeroShell's wrapper inside the hero composer ('*_composerHero',
          already a stacking context via its z-index:1 as a flex item).
 
-         Geometry and strength are the MEASURED ones from false above, not new
-         choices: a 135% -of-column-width ellipse (left/right -17.5%) whose centre
-         sits 92px above the composer card's bottom edge (height 190px, bottom 30px
-         against the wrapper's 32px padding-bottom), at --edge-glow-light in light
-         and --edge-glow-dark in dark — the same per-scheme alphas that reproduce
-         the depth of the #6187D8 glow the theme originally matched, including the
-         cyan palette's 0.04 (both variables are declared on body beside the accent).
+         SHAPE: the light is the INPUT BOX's own rectangle. It is painted on the
+         composer card itself — [data-composer-card], the app's own hook, the same
+         attribute the frost layer above already uses; upstream renders it on the
+         InputBar card div, which is position:relative and carries
+         border-radius:var(--dsw-radius-panel). 'inset: 0' makes the pseudo exactly
+         that box and 'border-radius: inherit' gives it that box's corners, so the
+         bloom matches one line, ten lines, an attachment strip — whatever the
+         composer currently is — with no measurement and nothing to go stale.
 
-         Drawn as a radial-gradient rather than a blurred ellipse on purpose: this
-         sheet's own rule for the frost layer forbids full-window blur and nested
-         filters, and a 135%-wide blur(50px) layer is exactly the paint cost the
-         theme avoids. The plateau-then-falloff stops approximate the former
-         feGaussianBlur stdDeviation 50 shape at no filter cost.
+         That is the whole reason the ellipse is gone. An ellipse had to be placed
+         by hand: the previous version hard-coded 320px of height and a -71px
+         offset so its centre landed on the card, numbers derived from ONE capture
+         of the hero at ONE window size, and it read as a blob sitting behind the
+         layout rather than as light coming off the input box. A rectangle anchored
+         to the card cannot drift from it.
 
-         z-index:-1 keeps it behind the headline, the workspace row and the
-         composer card it sits under, inside composerHero's own stacking context —
-         so it still paints ABOVE the contour sheet (z-index:0 in the frame) and
-         below the hero's content, which is where the removed element used to be. */
-      [class$='_composerHero'] {
-        position: relative;
-      }
-      [class$='_composerHero']::before {
+         z-index:-1 puts it under the card's own opaque fill. The card is
+         position:relative with z-index:auto, so the pseudo joins the nearest
+         stacking context — composerHero (z-index:1) — where a negative layer paints
+         above that wrapper's background (and therefore above the contour sheet,
+         which lives in the frame's z-index:0 layer) and BELOW every in-flow
+         descendant, the card included. So the bloom shows only outside the card's
+         box, which is what "a rectangle of light behind the input box" means.
+
+         Scoped to the hero deliberately: [class$='_composerHero'] is only added to
+         the composer stack in the empty-conversation phase, so a running
+         conversation keeps its plain composer instead of gaining a lit seat. */
+      body[data-endfield-glow] [class$='_composerHero'] [data-composer-card]::before {
         content: '';
         position: absolute;
+        inset: 0;
         z-index: -1;
-        left: -17.5%;
-        right: -17.5%;
-        bottom: 30px;
-        height: 190px;
+        border-radius: inherit;
         pointer-events: none;
-        opacity: var(--edge-glow-light);
-        background: radial-gradient(50% 50% at 50% 50%,
-          var(--edge-signal, var(--edge-accent)) 0%,
-          var(--edge-signal, var(--edge-accent)) 38%,
-          color-mix(in srgb, var(--edge-signal, var(--edge-accent)) 42%, transparent) 66%,
-          rgba(0, 0, 0, 0) 100%);
+        /* Three stacked shadows rather than one: a tight rim that welds the light to
+           the card's edge, a mid halo, and a wide soft field. The FIRST layer
+           carries the full --edge-glow-base alpha and is the one
+           test/palette-contrast.test.js models; the other two are fixed fractions
+           of it, so the ladder stays proportional in both palettes and both
+           schemes. calc() inside rgba() is what lets one variable scale all three
+           without a preprocessor — and it is why the level changes INTENSITY only:
+           the geometry of the bloom does not move when the user turns it up. */
+        box-shadow:
+          0 0 26px 0 rgba(var(--edge-accent-rgb), calc(var(--edge-glow-base) * var(--edge-glow-level))),
+          0 0 90px 16px rgba(var(--edge-accent-rgb), calc(var(--edge-glow-base) * var(--edge-glow-level) * 0.55)),
+          0 0 220px 60px rgba(var(--edge-accent-rgb), calc(var(--edge-glow-base) * var(--edge-glow-level) * 0.3));
       }
-      body[data-ds-dark-theme] [class$='_composerHero']::before {
-        opacity: var(--edge-glow-dark);
+      /* The strength ladder (设置 › 02 背景 › 输入框泛光).
+         'off' never reaches this block: the JS reader REMOVES the attribute for it
+         — the same contract the frost row uses — so an off row leaves no
+         pseudo-element, no shadow and no paint cost. That is also why the default
+         level sits on the gated selector instead of on body: an unrecognised stored
+         value has to fall back to 标准, not to "no bloom at all".
+
+         The base is per palette AND per scheme, and it is the SAME pair of
+         variables the ellipse used (--edge-glow-light / --edge-glow-dark): the
+         contrast gate in test/palette-contrast.test.js measures those two values,
+         and keeping the naming means the ladder multiplies a quantity the gate
+         already knows how to weigh. */
+      body[data-endfield-glow] {
+        --edge-glow-base: var(--edge-glow-light);
+        --edge-glow-level: 1;
       }
+      body[data-endfield-glow][data-ds-dark-theme] {
+        --edge-glow-base: var(--edge-glow-dark);
+      }
+      body[data-endfield-glow='soft'] { --edge-glow-level: 0.5; }
+      body[data-endfield-glow='standard'] { --edge-glow-level: 1; }
+      body[data-endfield-glow='strong'] { --edge-glow-level: 1.75; }
       /* Brand wordmark HARNESS chip: signal-yellow box + black letters (both modes) */
       body {
         --dsw-alias-label-primary-inverted: #101110;
@@ -5714,6 +5777,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     `)
       syncRadiusMode()
       syncGlass()
+      syncComposerGlow()
       syncBokeh()
       syncPaletteClass()
     }
@@ -5798,6 +5862,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         // These sync helpers read the store on each call, so no snapshot passing.
         syncRadiusMode()
         syncGlass()
+        syncComposerGlow()
         syncBokeh()
         syncPaletteClass()
         syncWatermarkVisibility()
@@ -5882,6 +5947,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       bokehWashRow: '散景压暗', bokehWashHint: '在虚化区域内进一步淡化等高线',
       bokehWashNeedBlur: '需先把中央散景设为非关闭',
       bokehWashOff: '关闭', bokehWashSubtle: '轻微', bokehWashStandard: '标准', bokehWashStrong: '强烈',
+      glowRow: '输入框泛光', glowHint: '开始新对话页：输入框四周那圈矩形的光，形状跟随输入框本身',
+      glowOff: '关闭', glowSoft: '柔和', glowStandard: '标准', glowStrong: '强烈',
       contourRendererRow: '等高线绘制', contourRendererCanvas: 'Canvas', contourRendererWorker: 'Worker / WebGL',
       contourRendererHint: '实验性后台绘制；不支持时自动回退，适合对照滚动性能', contourRendererHintBokeh: '中央散景已开启，等高线实际由主线程 Canvas 绘制（Worker 无法执行虚化）；把中央散景设为「关闭」即可恢复 Worker',
       contourFpsRow: '动态帧率',
@@ -6033,6 +6100,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       bokehWashRow: 'Defocus dimming', bokehWashHint: 'Fades the sheet further inside the defocused area',
       bokehWashNeedBlur: 'Needs a non-off defocus level',
       bokehWashOff: 'Off', bokehWashSubtle: 'Subtle', bokehWashStandard: 'Standard', bokehWashStrong: 'Strong',
+      glowRow: 'Composer bloom', glowHint: 'On the start page, the rectangle of light around the input box; its shape follows the box itself',
+      glowOff: 'Off', glowSoft: 'Soft', glowStandard: 'Standard', glowStrong: 'Strong',
       contourRendererRow: 'Contour renderer', contourRendererCanvas: 'Canvas', contourRendererWorker: 'Worker / WebGL',
       contourRendererHint: 'Experimental background rendering with automatic fallback; compare scrolling on your device', contourRendererHintBokeh: 'Centre defocus is on, so the sheet is drawn by the main-thread Canvas (the worker cannot apply it); set it to Off to use the worker again',
       contourFpsRow: 'Animation frame rate',
@@ -6198,6 +6267,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           const [thunderAnim, setThunderAnim] = R.useState(isThunderAnimOn())
           const [palette, setPalette] = R.useState(readPalette())
           const [glass, setGlass] = R.useState(readGlass())
+          const [composerGlow, setComposerGlow] = R.useState(readComposerGlow())
           const [bokeh, setBokeh] = R.useState(readBokeh())
           const [bokehWash, setBokehWash] = R.useState(readBokehWash())
           const [mode, setMode] = R.useState(prefsGet(RADIUS_KEY) || 'square')
@@ -6342,6 +6412,12 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
             prefsSet(GLASS_KEY, value)
             setGlass(value)
             syncGlass()
+          }
+          const setComposerGlowValue = (value) => {
+            if (!GLOW_OPTIONS.includes(value)) return
+            prefsSet(GLOW_KEY, value)
+            setComposerGlow(value)
+            syncComposerGlow()
           }
           /* Read through the store like every other handler here, never the React
              state variable: the two can disagree while the section is still
@@ -6873,6 +6949,24 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                   disabled: !wmOn,
                   title: wmOn ? '' : t('wmPersistNeedWm'),
                 }, t(wmPersist ? 'wmPersistOff' : 'wmPersistOn'))
+              ]),
+              /* 输入框泛光: the strength of the rectangle of light behind the
+                 composer card on the start page. A select like the frost and bokeh
+                 rows, because the interesting quantity is a named level rather than
+                 a number — the stylesheet owns the multipliers, and 标准 is the
+                 strength the hero shipped with before this became a setting. */
+              row('composer-glow', true, [
+                R.createElement('span', { style: labelStyle },
+                  t('glowRow') + t('sep') + t({ off: 'glowOff', soft: 'glowSoft', standard: 'glowStandard', strong: 'glowStrong' }[composerGlow]),
+                  R.createElement('span', { style: hintStyle }, t('glowHint'))
+                ),
+                R.createElement('select', {
+                  'aria-label': t('glowRow'), value: composerGlow,
+                  onChange: (event) => setComposerGlowValue(event.target.value),
+                  style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
+                    border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px' },
+                }, GLOW_OPTIONS.map((value) => R.createElement('option', { key: value, value },
+                  t({ off: 'glowOff', soft: 'glowSoft', standard: 'glowStandard', strong: 'glowStrong' }[value]))))
               ]),
             ]),
             /* --- 03 动画：启动加载动画 --- */

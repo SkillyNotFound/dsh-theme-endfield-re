@@ -35,7 +35,7 @@
  */
 const BROWSER_SETTINGS_SCOPE_SNIPPET = `
 var __endfieldFieldDefaults = {
-  enabled:'1', palette:'valley', radius:'square', glass:'off', contour:'1', contourAnim:'0',
+  enabled:'1', palette:'valley', radius:'square', glass:'off', composerGlow:'standard', contour:'1', contourAnim:'0',
   contourTrail:'0', contourFps:'24', contourSpeed:'2', contourRenderer:'canvas', contourScrollPause:'1',
   bokeh:'standard', bokehWash:'standard', watermark:'1',
   watermarkPersist:'0', loader:'0', thunder:'0', thunderAnim:'0',
@@ -46,6 +46,7 @@ var __endfieldFieldDefaults = {
 var __endfieldKeyToField = {
   'dsh-theme-endfield-enabled':'enabled', 'dsh-theme-endfield-palette':'palette',
   'dsh-theme-endfield-glass':'glass',
+  'dsh-theme-endfield-composer-glow':'composerGlow',
   'dsh-theme-endfield-radius':'radius', 'dsh-theme-endfield-contour':'contour',
   'dsh-theme-endfield-contour-anim':'contourAnim',
   'dsh-theme-endfield-contour-trail':'contourTrail',

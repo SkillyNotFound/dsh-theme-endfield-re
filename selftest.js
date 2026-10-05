@@ -151,6 +151,48 @@ const CASES = [
       '$1      :root { --dsw-font-family: Arial, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; }\n'),
     expect: /--dsw-font-family.*DECLARED by the theme/,
   },
+  /* --- composer bloom (输入框泛光). Each case is a regression that was either
+     shipped or narrowly avoided, and each is proved to be caught. --- */
+  {
+    name: 'the bloom stops being the input box (its box no longer follows the card)',
+    /* `inset: 0` is what makes the pseudo BE the card's rectangle. Replacing it with
+       a fixed height is the shape of the old wrapper-anchored ellipse: a box placed
+       near the card rather than derived from it. */
+    mutate: (s) => s.replace(/(\n\s*)inset:\s*0;(\s*\n\s*z-index:\s*-1;)/, '$1height: 190px;$2'),
+    expect: /composer bloom is missing inset/,
+  },
+  {
+    name: 'the bloom is painted in front of the card (z-index lost)',
+    mutate: (s) => s.replace(/(\n\s*z-index:\s*)-1;(\s*\n\s*border-radius:\s*inherit;)/, '$11;$2'),
+    expect: /composer bloom is missing z-index: -1/,
+  },
+  {
+    name: 'the bloom is unscoped (every conversation gets a lit composer seat)',
+    mutate: (s) => s.replace(
+      /body\[data-endfield-glow\] \[class\$='_composerHero'\] \[data-composer-card\]::before/,
+      "body[data-endfield-glow] [data-composer-card]::before"),
+    expect: /composer bloom is not scoped/,
+  },
+  {
+    name: 'the ellipse comes back on the composer wrapper',
+    /* The retired design: a wrapper-anchored box whose height and offset had to be
+       hard-coded from one capture, so it stopped matching the card as soon as the
+       composer grew a row. */
+    mutate: (s) => s.replace(
+      /(\n      body\[data-endfield-glow\] \{)/,
+      "\n      [class$='_composerHero']::before { content: ''; position: absolute; height: 320px; }$1"),
+    expect: /wrapper-anchored ellipse/,
+  },
+  {
+    name: 'the bloom ladder is not increasing (a level that dims instead of brightening)',
+    mutate: (s) => s.replace(/--edge-glow-level:\s*1\.75;/, '--edge-glow-level: 0.25;'),
+    expect: /bloom ladder is not strictly increasing/,
+  },
+  {
+    name: 'the standard level drifts off the shipped strength',
+    mutate: (s) => s.replace(/--edge-glow-level:\s*1;\s*\}/, '--edge-glow-level: 0.7; }'),
+    expect: /bloom ladder|shipped/,
+  },
 ]
 
 let bad = 0

@@ -193,18 +193,38 @@ if (strokesFound) {
   }
 }
 
-/* ---------- 5. hero glow depth ----------
-   The glow replaces the app's own #6187D8 at 8%. The README's rule is that the
-   replacement must not make the hero read LOUDER than the glow it replaces,
-   measured as the luminance shift of the composited ellipse core against the page.
+/* ---------- 5. hero glow presence ----------
+   The hero backdrop glow used to be the app's own #6187D8 ellipse at 8%, and this
+   section used to assert the replacement was never LOUDER than that (a one-sided
+   ceiling on the composited core's |ΔY|). That rule was right for a backdrop the
+   theme merely re-coloured, and it is the wrong rule now: on the empty-conversation
+   page the glow read as "too small and too faint", so the glow is a designed
+   feature with a target strength rather than a quieter substitute for a colour the
+   theme wants gone. Keeping the old one-sided budget would have made the shipped
+   values fail while saying nothing about the actual defect — too little presence.
 
-   The bound is deliberately ONE-SIDED, and getting this wrong is instructive: a
-   symmetric "within N of the blue" bar fails the SHIPPED yellow light value, which
-   sits at ΔY -0.17 against the blue's -7.90. That is not a defect — on cream,
-   yellow is almost luminance-neutral and shifts chroma instead (blue channel -18),
-   which the README records as "a warm breath on the paper rather than the blue's
-   grey-blue darkening — gentler than what it replaces, not louder". Quieter than
-   the original is always acceptable; louder is the regression worth catching. */
+   So the gate is now TWO-SIDED, and it measures presence in the channel the hue
+   actually moves on each surface. That distinction is not cosmetic:
+
+     dark  — over near-black every unit of alpha adds real luminance, so |ΔY| is
+             the presence metric and the ceiling is close (a halo becomes a
+             coloured slab long before it becomes invisible).
+     light — on cream, #fff500 is almost luminance-NEUTRAL (ΔY -2.1 per unit
+             alpha, i.e. -0.32 at 0.15): measuring yellow by luminance would say
+             "invisible" about a glow that is plainly there. It moves the BLUE
+             channel instead (-33.9 at 0.15). Cyan is the mirror case: it barely
+             touches blue (-2.7) and darkens instead (ΔY -9.5). So light mode
+             scores max(|ΔY|, |ΔB|), which is the honest question — "did the core
+             move at all against the paper" — and it covers both palettes with one
+             expression.
+
+   Floors are where the glow stops registering (the reported bug); ceilings are
+   where it stops reading as light on the page. Both are the shipped values' own
+   margins, checked per palette and per scheme. */
+const GLOW_BAND = {
+  light: { floor: 8, ceiling: 45 },
+  dark: { floor: 12, ceiling: 30 },
+}
 const glowAlpha = (block, name) => {
   const v = varIn(block, name)
   return v === null ? null : Number(v)
@@ -214,6 +234,11 @@ const yShift = (fg, bg, a) => {
   const Y = (p) => 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]
   return Y(c) - Y(bg)
 }
+const bShift = (fg, bg, a) => over(fg, bg, a)[2] - bg[2]
+const glowPresence = (fg, bg, a, mode) => {
+  const y = Math.abs(yShift(fg, bg, a))
+  return mode === 'dark' ? y : Math.max(y, Math.abs(bShift(fg, bg, a)))
+}
 const BLUE = hex('#6187D8')
 for (const [name, block] of Object.entries(palettes)) {
   const accent = varIn(block, '--edge-accent')
@@ -221,18 +246,24 @@ for (const [name, block] of Object.entries(palettes)) {
   for (const [mode, bg] of [['light', LIGHT_BGS['bg-base']], ['dark', DARK_BGS['bg-base']]]) {
     const a = glowAlpha(block, '--edge-glow-' + mode)
     if (a === null) { fail(name + ': --edge-glow-' + mode + ' is not defined'); continue }
-    const mine = Math.abs(yShift(hex(accent), bg, a))
-    const blue = Math.abs(yShift(BLUE, bg, 0.08))
-    // 2 Y of headroom over the original: below the ~3 Y level where a change in
-    // hero depth becomes noticeable side by side.
-    const budget = blue + 2
-    if (mine <= budget) {
-      pass(name + ' hero 光晕 ' + mode + ' α=' + a + '：|ΔY| ' + mine.toFixed(2)
-        + ' <= ' + budget.toFixed(2) + '（原品牌蓝 ' + blue.toFixed(2) + '）')
+    // Anchor the numbers to the backdrop this glow replaced, so the report is
+    // readable: |ΔY| of the stock #6187D8 at 8% is ~9.3 on the dark page.
+    const stock = Math.abs(yShift(BLUE, bg, 0.08))
+    const mine = glowPresence(hex(accent), bg, a, mode)
+    const band = GLOW_BAND[mode]
+    const detail = name + ' hero 光晕 ' + mode + ' α=' + a
+      + '：presence ' + mine.toFixed(2)
+      + (mode === 'light' ? ' (max|ΔY|,|ΔB|)' : ' (|ΔY|)')
+      + '，band ' + band.floor + '–' + band.ceiling
+      + '（替换前的 #6187D8 @8% |ΔY| ' + stock.toFixed(2) + '）'
+    if (mine < band.floor) {
+      fail(detail + '\n      -> below the floor: the halo reads as absent, which is '
+        + 'the reported "the glow is too faint" regression')
+    } else if (mine > band.ceiling) {
+      fail(detail + '\n      -> above the ceiling: the backdrop stops reading as light '
+        + 'on the page and starts reading as a coloured fill behind the composer')
     } else {
-      fail(name + ' hero glow ' + mode + ' |ΔY| ' + mine.toFixed(2)
-        + ' exceeds the ' + budget.toFixed(2) + ' budget set by the blue it replaces ('
-        + blue.toFixed(2) + ') — the hero reads louder than stock')
+      pass(detail)
     }
   }
 }

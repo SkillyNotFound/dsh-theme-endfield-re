@@ -62,6 +62,8 @@ const FIELD_DEFAULTS = {
   /* 中央散景 — fork addition. Same defaults as index.js FIELD_DEFAULTS. */
   bokeh: 'standard',
   bokehWash: 'standard',
+  /* 输入框泛光 — same defaults as index.js FIELD_DEFAULTS. */
+  composerGlow: 'standard',
   watermark: '1',
   watermarkPersist: '0',
   loader: '0',
@@ -90,6 +92,7 @@ const KEY_TO_FIELD = {
   'dsh-theme-endfield-palette': 'palette',
   'dsh-theme-endfield-radius': 'radius',
   'dsh-theme-endfield-glass': 'glass',
+  'dsh-theme-endfield-composer-glow': 'composerGlow',
   'dsh-theme-endfield-contour': 'contour',
   'dsh-theme-endfield-contour-anim': 'contourAnim',
   'dsh-theme-endfield-contour-fps': 'contourFps',
