@@ -76,7 +76,7 @@ node test/hover-check.js             # 用 CDP 真的移动鼠标，验证真实
 node test/verify-shots.js            # 解码四张截图统计强调色像素
 ```
 
-**`palette-contrast.test.js`** 从 `client.js` 的实际样式表里把变量读出来再验算。覆盖 27 项：实心底 + 墨色字达 AA、悬停底同样达标、渐变文字四个色标对**两种**可能底色都达 AA、暗色强调色作图标墨色 ≥3、两配色的等高线合成对比度相差 ≤20% 且高于 1.06 感知下限、hero 光晕不比原品牌蓝更响、两配色确实不同、强调色写成 6 位十六进制，以及**武陵青的亮度必须落在 45%–56% 区间且留在青碧色轴上**。
+**`palette-contrast.test.js`** 从 `client.js` 的实际样式表里把变量读出来再验算。覆盖 27 项：实心底 + 墨色字达 AA、悬停底同样达标、渐变文字四个色标对**两种**可能底色都达 AA、暗色强调色作图标墨色 ≥3、两配色的等高线合成对比度相差 ≤20% 且高于 1.06 感知下限、**hero 光晕落在双侧存在感区间内**（亮色量 `max(|ΔY|,|ΔB|)`、暗色量 `|ΔY|`，因为黄色在纸上动的是色度而不是亮度）、两配色确实不同、强调色写成 6 位十六进制，以及**武陵青的亮度必须落在 45%–56% 区间且留在青碧色轴上**。**输入框泛光的几何**在 `check.js` 里做静态守卫，三件事都不是截图能看出来的：**形状必须锚在输入框上**（`[data-composer-card]` 的伪元素 + `inset: 0` + `border-radius: inherit`，且必须限定在 hero 阶段，否则每段对话都会多出一个发光的输入区）、**必须在卡片之后**（`z-index: -1`）、**档位必须严格递增且「标准」= 1**（否则每次调档都会悄悄重定两套配色 × 明暗的基准）。另外断言旧的 `[class$='_composerHero']::before` 椭圆**不许回来**——那套方案的长宽与中心必须手写，输入框长高一行就失配。四个注入用例各证明一条守卫真的会红。
 
 **`palette-switch.test.js`** 在真实浏览器里跑真实 `client.js`，并**按应用的真实方式把令牌写成 `<body>` 行内样式**——用样式表 `:root` 假装会让测试通过而线上坏掉，这种不对称正是它存在的理由。断言：默认是谷地黄且不带 class；11 个变量全部**非空**；`--dsw-alias-brand-primary` 在切换后**自动**变成青色（令牌层没有重新注册）；`rgba(var(--rgb), α)` 型半透明色块随之切换；渐变文字换色；**画布被重绘且新描边偏青**（B 通道高于 R）；关闭主题后不残留 class。
 
@@ -97,12 +97,23 @@ node test/settings-config-forms.test.js  # 0.1.7 的 configForms transport（ent
 node test/settings-config-fallback.test.js # Host Config 字段契约与选择顺序（不依赖本机 schemastery）
 node test/settings-namespace.test.js # 存储字段名对齐 schema + 旧拼写迁移 + 三条读/写边界
 node test/settings-off.test.js      # 关闭主题后设置页仍可读
-node test/settings-locale.test.js   # 跟随语言设置（zh/en 词典对齐 + 切换生效）
+node test/settings-scrollbar.test.js # 切换章节不改变面板宽度（滚动条预留）
+node test/settings-locale.test.js   # 跟随语言设置（zh/en 词典对齐 + 切换生效，含章节选择条短标签）
 ```
+
+**`settings-scrollbar.test.js`** 守的是「切换章节时上方选择槽长度变化、闪烁」。它把真实面板放进一个**固定高度、`overflow-y:auto` 的滚动容器**里（高度取得很讲究：短章节要放得下、长章节要溢出，否则复现不出来），在最短的「主题」（4 行）与最长的「音频」（11 行）之间来回切换，量 `getBoundingClientRect().width`：加了预留后两者都是 510px，并断言挂载时就写上了 `scrollbar-gutter: stable`、两侧都保留了滚动条宽度的盒子。**最后跑一次反向对照**——把预留去掉再量一次，断言宽度**确实**会变（520 → 510，正好是一个滚动条宽）。没有这条对照，「宽度相同」也可能只是因为 mock 压根没复现这个缺陷。它也是唯一一个给 React 桩提供 `useEffect` 的设置类用例：预留是在**挂载后的 effect** 里做的（提交前 DOM 还不存在），桩若不实现该钩子，被测代码会被静默跳过。
 
 **`settings-rows.test.js`** 不用浏览器也不用 React：以**记录型 `React` / `slots` + 假的设置 transport**（`test/fixtures/settings-scope.js`）在进程内跑一次真实 `apply()`，抓下设置面板真正的元素树。设置页是用户唯一能碰到这些开关的入口，而那里的错误（抛异常、漏 key、开关写错了 DSH 设置的字段）check.js 与画布测试都看不见。
 
-> 说明：这个插件从 **`localStorage` 迁移到了 DSH 的持久化设置服务**（见 features.md / engineering-notes.md）。因此设置类测试不再往浏览器存储里塞值，而是驱动假的 transport：除 `settings-config-forms.test.js` 之外的用例走旧世代 `ctx.settingsScope`（fixture 的 `settingsScopeStub`，在内存里扮演 `<settings.yaml>` 的命名字段节），新世代由 `configFormsStub` 扮演 `ctx.configForms`（命名空间 = profile entry id）。断言 16 行齐全且归入 4 个分组容器、key 唯一、分组标题（01 主题 / 02 背景 / 03 动画 / 04 娱乐）与配色样式规则都在、配色行默认显示谷地黄且按钮提供「切换武陵青」、点击把 `palette` 写成 `wuling`、存了 `wuling` 时反向提供「切换谷地黄」并标注 `#14d0d0`、图层关闭时子开关为 disabled、开启后恢复可用，雷霆大字与大字入场动画均默认为关、说明文字包含「任务开始」/「任务完成」与 3 秒、**子开关只写自己的字段而不误写主开关的**，以及点击确实写入文档里那个 DSH 设置字段。
+> 说明：这个插件从 **`localStorage` 迁移到了 DSH 的持久化设置服务**（见 features.md / engineering-notes.md）。因此设置类测试不再往浏览器存储里塞值，而是驱动假的 transport：除 `settings-config-forms.test.js` 之外的用例走旧世代 `ctx.settingsScope`（fixture 的 `settingsScopeStub`，在内存里扮演 `<settings.yaml>` 的命名字段节），新世代由 `configFormsStub` 扮演 `ctx.configForms`（命名空间 = profile entry id）。断言 30 行齐全且归入 5 个分组容器、key 唯一、分组标题（01 主题 / 02 背景 / 03 动画 / 04 娱乐 / 05 音频）与配色样式规则都在、配色行默认显示谷地黄且按钮提供「切换武陵青」、点击把 `palette` 写成 `wuling`、存了 `wuling` 时反向提供「切换谷地黄」并标注 `#14d0d0`、图层关闭时子开关为 disabled、开启后恢复可用，雷霆大字与大字入场动画均默认为关、说明文字包含「任务开始」/「任务完成」与 3 秒、**子开关只写自己的字段而不误写主开关的**，以及点击确实写入文档里那个 DSH 设置字段。
+
+> 同一文件也守**章节选择条**（滑动槽）：条在页面顶部（`role=tablist`）、5 个段按章节顺序排列且**标签不带编号**、每段可点、默认选中第一章、**恰好一个章节可见**（其余 `display:none`）、tab 与 panel 的 `aria-controls` / `aria-labelledby` 互指、roving tabindex、每段 tooltip 里带「编号 + 章节名」；再点一次「背景」并重渲染，断言可见章节、`aria-selected` 与滑动块的 `translateX(100%)` 三者一起跟随；最后按一次 `→` 断言选择走到「动画」且调用了 `preventDefault`。选择条自身用 `key: 'tabs'`——**key 不能以 `group-` 开头**，否则上面的「5 个分组容器」会把选择条也算成一个章节。
+
+> 章标题的两条排版约定也在这里守着：行容器中线对齐、**英文行单独 `alignSelf: flex-end` 底对齐**、强调竖条不带 `alignSelf`（保持居中），以及**英文行严格小于中文名**（关系断言，不写死 px——档位是设计旋钮，比例才是约定）。
+
+> `settings-locale.test.js` 另外**从选择条本身**（按 `key: 'tabs'` 取子树，而不是全页文本）读出两套标签，断言中英分别为 `主题背景动画娱乐音频` / `ThemeBackgroundAnimationExtrasAudio`，并用 `/^[0-9]/` 断言标签里**没有章节编号**——这条守的就是「滑块文字不要 01 02」。
+
+> 选择条的悬停字色由 **`settings-off.test.js` 的对比度门禁**兜底（它探测面板里每个按钮，含 5 个段）。主题那条 `[role='tab']:hover` 反色规则带 `!important`，会盖掉行内字色——发现时它正把已选中的段变成「黄底白字」。修法是把 `.endfield-settings` 子树从该规则里排除，而这条断言的存在使同类回归无法静默通过。
 
 **`settings-durable-hold.test.js`**（旧世代 `settingsScope` 路径；0.1.7 上同一份写入 gate / 补写契约由 `settings-config-forms.test.js` 覆盖）用**两阶段假 `ctx.settingsScope`** 复现那条历史告警：宿主半部 `ctx.settings.register(...)` 尚未跑、命名空间还没进 Host 的 served 列表前，scope 快照是 `{ status:'unavailable', writable:true, mode:'host' }`——单看 `writable` 会照写不误却落不到盘。它先在未就绪态切「圆角 / 武陵青」，断言**没有任何 `scope.set` 出线**（旧 bug 会打 `commit … status= unavailable` 并静默丢脏）；随后模拟文档 committed、命名空间进入 served 列表、快照翻为 `status:'ready'`，断言订阅路径把两份 held 编辑**自动补写**进文档，且不会重复写两遍（replay 有 re-entrancy 护栏）。
 
@@ -136,7 +147,9 @@ node test/settings-locale.test.js   # 跟随语言设置（zh/en 词典对齐 + 
 
 > 变异验证 7 类，全部必须报错：把 `prefsFieldOf` 改回按前缀推导（原始 bug）、表里某条映射到相邻的错字段、删掉迁移、让迁移覆盖用户设过的值、`prefsSet` 不再叠加本地值（旧读序）、脏标记在「等于宿主值」时直接清、脏标记在「等于默认值」时直接清。
 
-**`settings-off.test.js`** 守的是设置页自己最脆弱的时刻：**开关按钮的强调色底来自主题样式表，而样式表随主题关闭被移除**。它在真实浏览器里加载真实 `client.js`，以应用**自己的默认令牌**（亮 / 暗两套）把主题关掉，用 `slots` 桩抓出真实元素树并物化成 DOM，然后断言每个按钮的合成对比度 ≥ 4.5。
+**`settings-off.test.js`** 守的是设置页自己最脆弱的时刻：**开关按钮的强调色底来自主题样式表，而样式表随主题关闭被移除**。它在真实浏览器里加载真实 `client.js`，以应用**自己的默认令牌**（亮 / 暗两套）把主题关掉，用 `slots` 桩抓出真实元素树并物化成 DOM，然后断言每个按钮的合成对比度 ≥ 4.5（含章节选择条的 5 个段，共 84 条）。
+
+> 这条断言抓到了一个真实缺陷：选择条的段标签一开始带 `transition: color`，于是方案切换时文字在整个淡出期间仍是**上一套方案的颜色**——亮转暗的头 140ms 里是近黑字压在深色面板上（1.36:1）。修法是去掉标签的颜色过渡，滑动块的 `transform` 负责动感。
 
 > 这个测试抓到过真 bug：修复前暗色模式下「切换武陵青」与「切为静态」两个常亮按钮是 `#000` 落在透明底上、对深色面板仅约 1.1:1，修复后全部 ≥ 11.5:1。
 
@@ -192,7 +205,7 @@ node test/thunder-dismiss.test.js   # 点击关闭：真实指针事件 + 命中
 `check.js` 只能证明文件可解析，这不等于功能有效。这些脚本把**真实的 `client.js`** 放进一个按安装态 bundle 复刻的应用 DOM/CSS 里跑，然后**对实测像素断言**：
 
 ```bash
-node test/contour-render.test.js      # 21 项行为断言
+node test/contour-render.test.js      # 25 项行为断言
 node test/contour-specks.test.js      # 残渣过滤 + 随机种子 + 空白格
 node test/contour-smoothness.test.js  # 曲线平滑（对比直线段渲染）
 node test/contour-cusps.test.js       # 逐帧尖点 / 锐角（issue #3）
@@ -202,7 +215,7 @@ node test/contour-perf.test.js        # 稳态帧成本（n=80）
 node test/shoot.js                    # 输出亮/暗 × 两配色共四张截图供肉眼复核
 ```
 
-**`contour-render.test.js`** 覆盖：关闭时不创建节点且**不改动应用底色**；开启时画布挂进应用外框、图层确实上色、不透明底色已让位；正文颜色不变且仍可命中测试（图层在其**之下**）；动画开启时像素随时间变化、关闭后**完全静止**、**重新开启后再次变化**；暗色仍上色；拆除后节点归零。
+**`contour-render.test.js`** 覆盖：**出厂默认**（什么都不存）就挂上图层、且**逐帧完全静止**（背景默认开、动态默认关）；关闭时不创建节点且**不改动应用底色**；开启时画布挂进应用外框、图层确实上色、不透明底色已让位；正文颜色不变且仍可命中测试（图层在其**之下**）；动画开启时像素随时间变化、关闭后**完全静止**、**重新开启后再次变化**；暗色仍上色；拆除后节点归零。
 
 > 这套脚本抓到了三个真实 bug，都不是解析错误：子开关在已挂载时失效、TDZ 崩溃隐患、重启动画的首帧是空转。详见[工程笔记](engineering-notes.md#等高线背景)。
 
@@ -253,6 +266,45 @@ node test/watermark-stacking.test.js
 四条结论都做了反向对照（故意改坏必须报错）：改回 `z-index:1` → 报 9945 px 越界；深色 alpha 调回 `0.16` → 报 1.558:1 过强；alpha 降到 `0.004` → 同时报「不可见」与「低于感知下限」。
 
 这个测试的两个方法论坑（不能用命中测试判断 `pointer-events:none` 的层叠、两版渲染必须只差 alpha）见[验证方法论](engineering-notes.md#命中测试判断不了-pointer-events-none-的层叠)。
+
+---
+
+## 输入框泛光
+
+```bash
+node test/bloom.test.js
+```
+
+在真实浏览器里跑真实 `client.js`，用自己搭的 hero 骨架（真实模块后缀）驱动真实的 settings seam（不是伪造 `body` 属性），断言六件事：
+
+- 泛光的伪元素**就是输入框的盒子**（`inset: 0`、`z-index: -1`、圆角继承），而且**跟着输入框一起长**——把卡片从 115px 改成 300px，伪元素必须同步长出 185px。这正是被退掉的椭圆做不到的事（它的长宽和中心都是手写数字）；
+- 四档在**两套配色 × 明暗**下都严格递增，且「标准」恰好等于该配色/明暗的基准 alpha；
+- 「关闭」**移除属性与伪元素**，而不是画一个透明层；
+- 泛光是 hero 限定的：hero 包装盒之外的 composer 卡片没有伪元素；
+- 「强烈」档不产生任何可滚动溢出。
+
+一个实测坑：颜色的 alpha 是 **8 位**的，所以 `0.09 × 0.5 = 0.045` 读回来是 `11/255 = 0.043`。断言必须按「一个 8 位步长」放宽，浮点相等会把正确实现判红——第一版就是这么红的。
+
+---
+
+## 磨砂玻璃
+
+```bash
+node test/glass.test.js
+```
+
+四套明暗 × 配色下逐档核对模糊半径与填充 alpha、几何稳定、悬停/选中对比度达标，另外钉住「霜上在面、不上在壳」这条契约：
+
+- `[data-dockkit-host='dock'] > [class*='_tabHost']` **必须**拿到 backdrop 模糊与玻璃填充（断言匹配仍然活着——宿主重命名这张面时，霜会静默消失，这是最容易悄悄坏掉的一条）；
+- `[data-sidebar-right-panel]` **必须**保持全透明、`backdrop-filter: none`。它是通高的定位壳，上霜等于往对话栏盖半屏色膜；
+- 这两条在 `push` 与 `fullscreen` 两种模式下都成立——`fullscreen` 排除的是**壳**，不是面。
+
+这条守卫做过反向对照：把选择器换回原来的 `:is([data-composer-card], [data-sidebar-right-panel='push'])`，测试立刻报 `the docked pane surface must carry the frost`。
+
+两个夹具坑，都真实踩过：
+
+1. **类名不能想当然。** 第一版夹具写的是 `class="tabHost"`，而真实宿主给的是 `_tabHost_6nhg2_162`——**导出名 + hash + 行号**。于是 `[class*='_tabHost']` 匹配不到，测试红在一个夹具错误上。注意这与布局模块不同：那边是 `BynINW_centerCol`（**导出名 + 模块名**，没有行号），所以既有规则用 `[class$='_centerCol']` 是对的，而 DockLayout 这边必须用子串。
+2. **夹具不能给壳上色。** 第一版给 `[data-sidebar-right-panel]` 写了 `background:#eee`，于是「壳必须透明」这条断言一开始就是红的——而真实的 `SidebarRight.module.css` 对面板正是 `background:0 0`。这条规则守的就是「主题别去画那个盒子」，夹具必须照抄宿主的透明，否则测的是夹具不是主题。
 
 ---
 

@@ -57,7 +57,7 @@
 
 ### Host ↔ Client 数据流
 
-1. **声明**（Host `index.js`）：0.1.7-rc.1 导出 `Config`（`z.object({ 每个字段: z.string().default(...).volatile() })`）；同时用 `ctx.inject(['settings'], sctx => sctx.effect(() => sctx.settings.configure({ auto: false }, ctx.fiber)))` 关掉自动生成的设置页（本插件自带四组页面）。旧宿主则在 `settings.register` 存在时执行 `register('dsh-theme-endfield', schema, { applies:'live' })`。schema 每个字段都是**字符串**字段并带 `.default(...)`：default-ON 存 `'1'`（读作 `!== '0'`），default-OFF 存 `'0'`（读作 `=== '1'`）；palette/radius/fps/speed 各存一个文档里写明的字面量。字符串化让三代存盘点位的值模型完全一致，client 的键表、面板与测试都不必随 transport 改动。
+1. **声明**（Host `index.js`）：0.1.7-rc.1 导出 `Config`（`z.object({ 每个字段: z.string().default(...).volatile() })`）；同时用 `ctx.inject(['settings'], sctx => sctx.effect(() => sctx.settings.configure({ auto: false }, ctx.fiber)))` 关掉自动生成的设置页（本插件自带五章页面，顶部是章节选择条）。旧宿主则在 `settings.register` 存在时执行 `register('dsh-theme-endfield', schema, { applies:'live' })`。schema 每个字段都是**字符串**字段并带 `.default(...)`：default-ON 存 `'1'`（读作 `!== '0'`），default-OFF 存 `'0'`（读作 `=== '1'`）；palette/radius/fps/speed 各存一个文档里写明的字面量。字符串化让三代存盘点位的值模型完全一致，client 的键表、面板与测试都不必随 transport 改动。
 2. **写**（浏览器 `client.js`）：设置面板每个 toggle 调用内部 `prefsSet(field, value)` → 只有当快照是 **durably served**（`mode:'host' && status:'ready' && writable`）时才调用 transport 的 `set(field, value)`，Host 收到后原子写盘。只凭 `writable` 判写是一个坑：host 模式的快照即便本命名空间**尚未被 served** 也会返回 `writable:true` 与 `status:'unavailable'`（`commit radius = round … status= unavailable` 就是这么打出来的）——旧代码照写不误、清了脏标记但什么都没落盘，刷新即丢。现在这种写被**拦下并标脏**（页面内仍生效），等快照在后续 ready 回相（Host 文档提交、镜像重载）时由 subscription 自动补写；`configForms.set()` 明确返回 `false`（Host 拒绝/跳过）时同样重新标脏等待下次回相，而不是假装写成功。
 3. **读 / 生效**：transport 的 `getSnapshot().value` 就是已由 schema 校验并合并默认值的整段（client 再经 `prefsResolveSection()` 归一化到 16 个声明字段）；主题层的 `isEnabled()` 与其它 getter 每次调用都 `prefsGet(field)` 现读本段，天然随值变化。
 4. **订阅同步**：`form.subscribe(...)` / `scope.subscribe(...)` 在每次落盘/镜像变化时唤醒，client 再跑一遍 `reconcileFromPrefs()`，把主题开关（enabled → mount/unmount token+样式表）、圆角/配色 class、水印、等高线、雷霆大字重新对齐。这样同 profile 里**另一个窗口/设备**编辑落盘文件（或本轮写入被 Host 回相确认）都不需要刷新即可热生效。订阅返回的 disposer 现在会被保存并在 run 拆除时调用：`ConfigForm` 是 provider 拥有、跨插件共享的实例，漏掉它会把这一个监听器泄漏给同页面的下一次 run。
@@ -407,7 +407,28 @@ body{font-family:var( --dsw-font-family, -apple-system, … )}
 - **zh 是键集的事实来源，en 必须与之完全对齐。** 少一个键不会崩，而是把**原始键名**渲染到界面上——静默且丑。因此测试直接对比两份词典的键集。
 - **分隔符也是词典键。** 行读数原本写成 `label + '：' + value`，全角冒号是硬编码的，于是每一行英文都带着一个中文冒号。现在 `sep` 由词典给出（zh 用 `：`，en 用 `: `），并有「英文页面不允许出现任何中日韩标点」的断言。
 - **分组标题在英文下不重复打印拉丁行。** 中文下是「04 娱乐 / ENTERTAINMENT」这种编辑式双行；英文下两行会 collapse 成同一个词，所以第二行直接省掉。
+- **章节选择条的段标签是另一组词典键**（`tabTheme` / `tabBg` / `tabAnim` / `tabFun` / `tabAudio`，英文取 Theme / Background / Animation / Extras / Audio）。一段只有面板宽度的五分之一，直接复用分组标题的话英文会打印「04 ENTERTAINMENT」并溢出；顺带也是为什么不能复用：`settings-locale.test.js` 有一条「en 下 ENTERTAINMENT 恰好出现一次」的断言，复用会立刻把它变成两次。
 - **没有 locale 服务也能用**：`t` 回退到 zh 词典（最后才回退到键名本身），设置页照常渲染为中文——进程内测试就是以这种最小 ctx 挂载主题的。
+
+### 面板宽度：滚动条占的是布局宽度
+
+设置页在固定高度的容器里滚动，而**经典滚动条占布局宽度**——主题自己就定了 `::-webkit-scrollbar { width: 10px }`。于是「短章节不滚动、长章节滚动」这件事会改变内容盒宽度：实测同一个面板在「主题」（4 行）是 520px、在「音频」（11 行）是 510px。加上章节选择条之后，这个 10px 的来回变化就表现为**上方那条选择槽在切换时变长变短**。
+
+修法是 `scrollbar-gutter: stable`——预留后无论有没有滚动条，内容盒宽度都不变。两个实现细节值得记下来：
+
+- **必须加在滚动容器上，而不是面板上。** 面板自己不是滚动容器，给它加预留不会影响外层的宽度变化。容器用**结构化查找**（从 `.endfield-settings` 往上第一个 `overflow-y` 为 `auto`/`scroll` 的祖先），理由同 `findAppFrame()`：应用的类名是哈希后缀、随构建轮换，写死选择器会静默失效。找不到就什么都不做（降级为「不修」，不抛错）。
+- **必须在 effect 里做，不能在 render 里做。** 第一次尝试写在 render 体内，结果 walk 找不到面板（提交前 DOM 里还没有这些节点）——测试里表现为 `gutterAfter: (none)` 而切换章节后才生效。挪进挂载 effect（提交后）就一次到位。这也是 `settings-scrollbar.test.js` 唯一给 React 桩实现 `useEffect` 的原因：桩不实现，被测代码会被静默跳过，而断言仍会「通过」。
+
+它在面板挂载时施加、拆除时还原（`releaseSettingsScrollbar`），所以卸载主题不会在应用 DOM 上留下内联样式。
+
+### 设置面板必须从「应用外观 hover 反色」里排除
+主题有一条针对应用外观元素的 hover 反色规则（`[role='tab']` / `[role='menuitem']` / `[class*='item' i]` … → `color: var(--dsw-alias-label-primary) !important`），存在的理由是应用自己的列表行、菜单项、徽章在悬停时需要统一的可读字色。
+
+它对本插件**自己的设置面板**是有害的，而且害处正好落在「主题自己的强调色」上：选择条里**已选中**的段是强调色底 + 黑字（行内声明），而 `!important` 的 hover 反色盖得住行内声明——悬停时黑字变成 `--dsw-alias-label-primary`，暗色方案下就是近白，于是「黄底白字」。同类问题对面板里任何自带字色的控件都成立（普通按钮早就被这条规则排除了，理由写在规则上方的注释里）。
+
+修法是**把 `.endfield-settings` 整棵子树排除**（`:not(.endfield-settings *)`），而不是给选择条加一条更专用的覆盖：面板里每个控件都自带字色，它不需要应用外观的反色；加覆盖则是让两条规则继续打架，而且下一个 `role=` 恰好落在名单里的面板控件会再犯一次。
+
+这也是**为什么对比度门禁要在真实浏览器里探测每一个按钮**（`settings-off.test.js`）：这条 hover 只在指针悬停时生效，进程内的元素树断言看不见它，只有「把每个按钮的合成色算一遍」才抓得到。
 
 ### `locale:` 只在服务存在时才声明
 
@@ -568,6 +589,65 @@ div.pI_x6G_centerCol
 **变异验证 5 类，全部报错**：换回第一次修完的那版选择器（漏包裹层）→ 2 条断言红（背景正是线上看到的灰底）；把图标判据换成裸后代 → jobs 标签与"容器外 `_label`"两条反向断言红；重新加回压平 + 增长 → 两条"变成长条"断言红。
 
 `test/preset-chip.test.js` 现在按**量出来的**骨架搭夹具（含那层无 class 包裹层，以及一个"根带 class、`_label` 藏在菜单里"的 jobs 式兄弟条目），断言**结果**而不是选择器文本，并且**同时守住两侧**：既不能没上色，也不能被拉成长条。
+
+### 八类：装饰画在了「定位壳」上，而壳比「面」大得多
+
+用户报的是桌面端「整个背景的右半侧都坏了」。**根因不是选择器没匹配到——恰恰相反，是匹配到了一个宽度和语义都完全不对的盒子。**
+
+磨砂玻璃这一行原来把霜写在 `[data-sidebar-right-panel='push']` 上：
+
+```css
+background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha)) !important;  /* α = .8 / .76 */
+backdrop-filter: blur(14px) saturate(1.05);
+```
+
+而宿主（`@deepseek-ai/dsh-client-ui-sidebar-right`）对这个盒子的定义是：
+
+```css
+.OUqwTW_panel{pointer-events:none;position:absolute;top:0;bottom:0;right:0}   /* 主题 CSS 模块里是 background: 0 0 */
+```
+
+它是**面板的定位壳**：通高、宽度等于面板全宽（`push` 模式约 45vw）、宿主特意保持全透明，只用来挂 `transform: translateX(...)` 的推入推出。真正上色的「面」是它内部 DockLayout 的 `<hash>_tabHost`（宿主：`background: var(--dsw-alias-bg-base)`）。
+
+后果是一个**半屏宽、通高的 80% 不透明填充**盖在对话栏上：左半还是纸底，右半整块变成死板色，边界就是壳的左边缘——正是反馈里那条硬邦邦的竖线。同时每帧都在跑一条半屏宽的 backdrop 模糊。红米在中性深色底下尤其刺眼：`248 247 240 / .8` 压 `#101110` 得到一块发白的奶色板。
+
+**用真实宿主 CSS 复现，再量像素**是这次唯一有效的路子。`app.asar` 里能直接读出 `AppFrame.module.css` / `DockLayout` / `SidebarRight.module.css` 的原文，把它们和主题样式表一起灌进一个无头浏览器、按真实骨架摆好 DOM，就能读到：
+
+| 采样点（x） | 修复前 | 修复后 |
+| --- | --- | --- |
+| 392（对话栏） | `(16,17,16)` | `(16,17,16)` |
+| 896（壳的左缘） | `(211,211,194)` | `(16,17,16)` |
+| 1190（壳中部） | `(204,204,192)` | `(16,17,16)` |
+| 1358（最右） | `(201,201,195)` | `(16,17,16)` |
+
+再看**计算样式**，一眼就能分清「面」和「壳」：
+
+```
+修复前  壳 bg=rgba(248,247,240,0.8) filter=blur(14px)   面 bg=rgb(16,17,16)  filter=none
+修复后  壳 bg=rgba(0,0,0,0)         filter=none          面 bg=rgba(248,247,240,0.8) filter=blur(14px)
+```
+
+**修法是换承载盒，不是调数值。** 选择器锚在宿主自己的 `data-dockkit-host` 属性上（属性比类名稳），面用**子串**匹配：
+
+```css
+body[data-endfield-glass] [data-sidebar-right-panel] [data-dockkit-host='dock'] > [class*='_tabHost']
+```
+
+**这里必须用子串，是本次第二个坑。** 同一个仓库里两种 Vite CSS-module 命名方案并存：
+
+| 模块 | 真实类名 | 能匹配的写法 |
+| --- | --- | --- |
+| 布局模块（`AppFrame`） | `BynINW_centerCol` | `[class$='_centerCol']`（后缀） |
+| DockLayout | `_tabHost_6nhg2_162` | `[class*='_tabHost']`（**子串**，导出名 + hash + 行号） |
+
+所以既有的 `[class$='_centerCol']` 是对的，而 DockLayout 这边照抄后缀就会**一个都匹配不到**——第一版夹具正是因为写成了 `class="tabHost"` 才红在一个假问题上。凡是往 DockLayout 里挂东西，先确认后缀里有没有那截行号。
+
+**两个夹具教训**（都是"夹具比被测代码更容易骗过自己"的又一例）：
+
+1. 夹具类名要照抄真实命名方案，别图省事写 `tabHost`；
+2. 夹具**不能给壳上色**——真实 `SidebarRight.module.css` 对面板就是 `background:0 0`。第一版夹具给它写了 `background:#eee`，于是"壳必须透明"这条断言一开始就是红的，测的是夹具而不是主题。
+
+`test/glass.test.js` 现在同时守住两侧：面**必须**有模糊与填充（并断言这条匹配还活着——宿主重命名时霜会静默消失），壳**必须**保持透明且 `backdrop-filter: none`，两种模式都查。反向对照：换回原来的选择器立刻报 `the docked pane surface must carry the frost`。
 
 ---
 
