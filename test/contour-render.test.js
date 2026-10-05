@@ -6,13 +6,15 @@
  * app's actual DOM and CSS (class-module names and the opaque bg-base fills taken
  * from the installed @deepseek-ai bundles), then asserts on measured pixels:
  *
- *   1. with the feature OFF nothing is created and no app style is altered;
+ *   0. the SHIPPED DEFAULT (nothing stored) mounts the layer and keeps it STATIC
+ *      — the background is on, the motion is off;
+ *   1. with the feature switched OFF nothing is created and no app style altered;
  *   2. with it ON the canvases mount inside the app frame, the layer paints
  *      yellow-ish pixels, and the app's opaque backgrounds no longer hide it;
  *   3. body text ON TOP of the layer keeps its exact colour (the sheet must sit
  *      behind content, never wash it out);
  *   4. animation actually changes pixels over time, and stops when switched off;
- *   5. animation actually changes pixels, and stops when switched off;
+ *   5. animation resumes when switched back on, and the dark scheme restrokes;
  *   6. teardown removes every node.
  *
  * Usage: node verify-contour.js            (writes shots + exits non-zero on fail)
@@ -90,10 +92,11 @@ window.__ModuleLoader__={load:(m)=>{window.__MOD__=m}}
 <script>
 const mod=window.__MOD__.factory(()=>null)
 /* The theme reads its switches through the dsh settingsScope seam, not
-   localStorage. This page seeds a fake binder (theme on, contour starts OFF,
-   loader off — exactly what the old localStorage lines expressed) and exposes it
-   as window.__LS__ so the probe block below can flip switches via setItem() like
-   the settings row does. */
+   localStorage. This page seeds a fake binder and exposes it as window.__LS__ so
+   the probe block below can flip switches via setItem() like the settings row
+   does. Nothing is seeded for the contour switches on purpose: the probe's first
+   phase runs against the SHIPPED DEFAULTS (background on, motion off), and the
+   later phases state each switch explicitly. */
 ${BROWSER_SETTINGS_SCOPE_SNIPPET}
 var __prefs=__endfieldSettingsScope({ enabled:'1', loader:'0' })
 window.__LS__=__prefs
@@ -140,12 +143,35 @@ async function main() {
   }
   window.__run__=async()=>{
     const LS=window.__LS__
-    // ---------- 1. feature OFF ----------
+    // ---------- 0. the SHIPPED DEFAULT: layer on, motion off ----------
+    /* LS.removeItem resets a field to its schema default, so this is literally the
+       out-of-the-box state: the contour sheet is ON and its animation is OFF. */
     LS.setItem('dsh-theme-endfield-enabled','1')
     LS.removeItem('dsh-theme-endfield-contour')
+    LS.removeItem('dsh-theme-endfield-contour-anim')
     LS.setItem('dsh-theme-endfield-loader','0')
     window.__apply__()
-    await sleep(120)
+    await sleep(400)
+    const dWrap=document.querySelector('[data-endfield-contour]')
+    R('default: layer mounted without opting in', !!dWrap)
+    const dLines=document.querySelector('[data-endfield-contour-lines]')
+    R('default: line canvas exists', !!dLines)
+    R('default: contour actually painted', !!dLines && px(dLines).opaque>3000,
+      dLines?'opaquePx='+px(dLines).opaque:'none')
+    /* Motion OFF must mean NO per-frame work: the pixels must not move. */
+    let dDiff=0
+    if(dLines){
+      const dd1=dLines.getContext('2d').getImageData(0,0,dLines.width,dLines.height).data.slice(0)
+      await sleep(700)
+      const dd2=dLines.getContext('2d').getImageData(0,0,dLines.width,dLines.height).data
+      for(let i=3;i<dd1.length;i+=4) if(dd1[i]!==dd2[i]) dDiff++
+    }
+    R('default: motion off, pixels static', !!dLines && dDiff===0, 'changedAlpha='+dDiff)
+
+    // ---------- 1. feature OFF (stated explicitly: it is no longer the default) ----------
+    LS.setItem('dsh-theme-endfield-contour','0')
+    document.body.appendChild(document.createElement('span'))
+    await sleep(400)
     R('off: no contour node', document.querySelectorAll('[data-endfield-contour]').length===0)
     const frame=document.querySelector('.pI_x6G_frame')
     const conv=document.querySelector('.wSkVaW_root')

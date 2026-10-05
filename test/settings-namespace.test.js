@@ -331,7 +331,10 @@ if (compoundCovered.length === COMPOUND.length) {
     watermark: '1',
     thunder: '1',
     'watermark-persist': '1',
-    'contour-anim': '0',
+    /* Deliberately the OPPOSITE of the declared default, so the read below can
+       tell "the panel read the declared field" from "the panel read the stray
+       key": contourAnim ships OFF, this stray key says ON. */
+    'contour-anim': '1',
     'contour-speed': '1',
     'contour-scroll-pause': '1',
   }
@@ -356,7 +359,7 @@ if (compoundCovered.length === COMPOUND.length) {
   }
   const { render } = boot({ bind: () => scope })
   const textBefore = textOf(render())
-  if (/动态等高线：开启/.test(textBefore) && /水印保持显示：关闭/.test(textBefore)) {
+  if (/动态等高线：关闭/.test(textBefore) && /水印保持显示：关闭/.test(textBefore)) {
     pass('回归对照：未声明字段里的值不会被当成已声明字段读取（schema 默认值优先）')
   } else {
     fail('the panel must read the declared fields, not the stray keys, got ' + JSON.stringify(textBefore.slice(0, 220)))
@@ -372,7 +375,7 @@ if (compoundCovered.length === COMPOUND.length) {
   } else {
     fail('legacy migration re-committed ' + migrated.length + '/4 fields; wire = ' + JSON.stringify(wire))
   }
-  const expected = { watermarkPersist: '1', contourAnim: '0', contourSpeed: '1', contourScrollPause: '1' }
+  const expected = { watermarkPersist: '1', contourAnim: '1', contourSpeed: '1', contourScrollPause: '1' }
   const wrong = Object.keys(expected).filter((f) => section[f] !== expected[f])
   if (wrong.length === 0) pass('迁移后每个 schema 字段都拿到了旧值')
   else fail('migration left ' + wrong.map((f) => f + '=' + section[f]).join(', ') + ' (expected ' + JSON.stringify(expected) + ')')
@@ -388,11 +391,21 @@ if (compoundCovered.length === COMPOUND.length) {
   } else {
     fail('migrated values did not take effect in the panel: ' + JSON.stringify(text.slice(0, 220)))
   }
+  /* Same for the field whose stray value was the opposite of its default: the
+     adopted legacy value must flip the row, which also proves the read above was
+     judging the DECLARED field rather than the stray key. */
+  if (/动态等高线：开启/.test(text)) {
+    pass('迁移后的值立即生效（动态等高线 = 开启）')
+  } else {
+    fail('migrated contourAnim did not take effect in the panel: ' + JSON.stringify(text.slice(0, 220)))
+  }
 }
 
 /* A user-set declared value must WIN over a stray legacy key. */
 {
-  const rawUser = { 'contour-anim': '1', contourAnim: '0' }
+  /* contourAnim ships OFF, so a user-set declared value has to be the ON one for
+     this case to be distinguishable from "nobody touched the field". */
+  const rawUser = { 'contour-anim': '0', contourAnim: '1' }
   const section = Object.assign({}, HOST.FIELD_DEFAULTS, rawUser)
   const wire = []
   const scope = {
@@ -405,7 +418,7 @@ if (compoundCovered.length === COMPOUND.length) {
   }
   const { render } = boot({ bind: () => scope })
   const text = textOf(render())
-  if (/动态等高线：关闭/.test(text)) pass('用户显式写入的 contourAnim=0 覆盖旧拼写里的 1')
+  if (/动态等高线：开启/.test(text)) pass('用户显式写入的 contourAnim=1 覆盖旧拼写里的 0')
   else fail('a user-set declared value lost to a stray legacy key: ' + JSON.stringify(text.slice(0, 200)))
   if (wire.length === 0) pass('这种情况不产生任何迁移写入')
   else fail('migration wrote although the user had set the field: ' + JSON.stringify(wire))

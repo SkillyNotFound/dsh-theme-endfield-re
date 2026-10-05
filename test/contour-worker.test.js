@@ -9,8 +9,12 @@ const root=path.resolve(__dirname,'..')
      the pass needs the main-thread canvas, so the theme derives
      `effectiveContourRenderer()` back to canvas and the worker is never started.
      Left on, the wait below can never be satisfied. The defocus has its own
-     verification; see bokehNeedsMainThread in client.js. */
-  await boot(browser,root,{contour:'1',contourRenderer:'worker-webgl',bokeh:'off',bokehWash:'off'},`
+     verification; see bokehNeedsMainThread in client.js.
+     `contourAnim` is switched ON for the same reason: this file is about the
+     ANIMATED worker path (the wait below counts submitted frame jobs), and the
+     shipped default is a STATIC sheet. The static branch is asserted further
+     down, where the animation is turned off and back on explicitly. */
+  await boot(browser,root,{contour:'1',contourAnim:'1',contourRenderer:'worker-webgl',bokeh:'off',bokehWash:'off'},`
     window.__workers=[];window.__frames=0;window.__painted=0;window.__live=0;
     const NativeWorker=Worker;
     window.Worker=class extends NativeWorker {

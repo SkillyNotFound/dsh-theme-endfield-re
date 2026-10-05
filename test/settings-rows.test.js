@@ -227,27 +227,46 @@ else {
   else fail('palette toggle wrote ' + JSON.stringify(prefStore.get('palette')) + ', expected "wuling"')
 }
 
-/* --- the two sub-switches must be DISABLED while the layer itself is off --- */
+/* --- the shipped default: the layer is ON, the motion is OFF, and the two are
+   independent decisions. Asserted from the DEFAULT render deliberately — the
+   default posture is the part a later edit is most likely to flip silently. --- */
 const findBtn = (re) => buttons.find((b) => re.test(textOf(b)))
-const animBtn = findBtn(/切为静态|开启动态/)
-const trailBtn = findBtn(/开启轨迹|关闭轨迹/)
+if (all.includes('等高线背景：开启')) pass('等高线背景 默认开启')
+else fail('等高线背景 should read 开启 with the default state')
+if (all.includes('动态等高线：关闭')) pass('动态等高线 默认关闭（背景默认静态）')
+else fail('动态等高线 should read 关闭 with the default state')
+const animBtnOn = findBtn(/切为静态|开启动态/)
+if (animBtnOn && !animBtnOn.props.disabled) pass('动态等高线 在背景默认开启时可用')
+else fail('动态等高线 should be usable while the contour layer is on')
+
+/* --- the two sub-switches must be DISABLED while the layer itself is off ---
+   The layer ships ON, so this block stores it off and re-renders: "off" is the
+   state those rows must disable in, and it is one click away from the default. */
+prefStore.setField('contour', '0')
+let treeOff
+try { treeOff = rendered() } catch (e) { fail('re-render (contour off) threw: ' + e.message); process.exit(1) }
+const buttonsOff = walk(treeOff).filter((n) => n.type === 'button')
+const rowsOff = walk(treeOff).filter((n) => n.type === 'div' && n.props && ROW_KEYS.includes(n.props.key))
+const findBtnOff = (re) => buttonsOff.find((b) => re.test(textOf(b)))
+const animBtn = findBtnOff(/切为静态|开启动态/)
+const trailBtn = findBtnOff(/开启轨迹|关闭轨迹/)
 if (trailBtn && textOf(trailBtn) === '开启轨迹' && trailBtn.props.disabled === true) pass('鼠标轨迹默认关闭，背景关闭时禁用')
 else fail('鼠标轨迹 should default off and be disabled while the layer is off')
 if (animBtn && animBtn.props.disabled === true) pass('动态等高线 disabled while layer off')
 else fail('动态等高线 should be disabled while the contour layer is off')
-const fpsRow = rows.find((r) => r.props.key === 'contour-fps')
+const fpsRow = rowsOff.find((r) => r.props.key === 'contour-fps')
 const fpsButtons = fpsRow ? walk(fpsRow).filter((b) => b.type === 'button') : []
 if (fpsButtons.length === 3 && fpsButtons.map((b) => textOf(b)).join(',') === '24,60,120') pass('动态帧率提供 24/60/120 三档')
 else fail('动态帧率 should provide exactly 24/60/120, found: ' + fpsButtons.map((b) => textOf(b)).join(','))
 if (fpsButtons.every((b) => b.props.disabled === true)) pass('动态帧率 disabled while layer off')
 else fail('动态帧率 should be disabled while the contour layer is off')
-const speedRow = rows.find((r) => r.props.key === 'contour-speed')
+const speedRow = rowsOff.find((r) => r.props.key === 'contour-speed')
 const speedButtons = speedRow ? walk(speedRow).filter((b) => b.type === 'button') : []
 if (speedButtons.length === 3 && speedButtons.map((b) => textOf(b)).join(',') === '慢速,标准,快速') pass('动态速度提供慢速/标准/快速三档')
 else fail('动态速度 should provide exactly 慢速/标准/快速, found: ' + speedButtons.map((b) => textOf(b)).join(','))
 if (speedButtons.every((b) => b.props.disabled === true)) pass('动态速度 disabled while layer off')
 else fail('动态速度 should be disabled while the contour layer is off')
-const scrollPauseRow = rows.find((r) => r.props.key === 'contour-scroll-pause')
+const scrollPauseRow = rowsOff.find((r) => r.props.key === 'contour-scroll-pause')
 const scrollPauseBtn = scrollPauseRow ? walk(scrollPauseRow).find((b) => b.type === 'button') : null
 if (scrollPauseBtn && textOf(scrollPauseRow).includes('滚动窗口动画暂停：开启')) pass('滚动窗口动画暂停默认开启')
 else fail('滚动窗口动画暂停 should be enabled by default')

@@ -40,7 +40,10 @@ const prefix = `
   try {
     await browser.send('Emulation.setDeviceMetricsOverride', { width: 960, height: 540, deviceScaleFactor: 1, mobile: false })
     const sample = async enabled => {
-      await boot(browser, root, { contour: '1', contourTrail: enabled ? '1' : '0' }, prefix)
+      /* contourAnim is stated ON because the trail only exists on the animated
+         path (the hint says so: 仅动态模式生效), while the shipped default is a
+         STATIC sheet. The static branch has its own assertions below. */
+      await boot(browser, root, { contour: '1', contourAnim: '1', contourTrail: enabled ? '1' : '0' }, prefix)
       await browser.until('document.querySelector("[data-endfield-contour-lines]") !== null')
       await browser.sleep(100)
       return browser.evaluate(`(() => {

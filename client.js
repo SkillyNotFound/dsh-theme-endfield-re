@@ -140,8 +140,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
          page with the effect disabled composites nothing at all. */
       bokeh: 'standard',
       bokehWash: 'standard',
-      contour: '0',
-      contourAnim: '1',
+      contour: '1',
+      contourAnim: '0',
       contourFps: '24',
       contourSpeed: '2',
       contourRenderer: 'canvas',
@@ -157,11 +157,10 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
          `audioTurnFail` are 预留: the sounds and switches ship, the triggers do
          not, and the settings rows say so.
 
-         The MASTER switch ships OFF (opt-in), mirroring index.js FIELD_DEFAULTS
-         and lib/audio.js FALLBACK: an install that upgrades into this feature
-         must not start making noise by itself. The per-slot switches stay ON, so
-         turning the master on is what starts the sound. */
-      audioEnabled: '0',
+         The MASTER switch ships ON, mirroring index.js FIELD_DEFAULTS and
+         lib/audio.js FALLBACK: a fresh install is audible, and the per-slot
+         switches (also ON) are what narrow it down to the moments you want. */
+      audioEnabled: '1',
       audioVolume: '100',
       audioBoot: '1',
       audioTurnStart: '1',
@@ -1567,8 +1566,10 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        even strokes, organic spacing.
 
        Two independent switches, each a no-op when off:
-         CONTOUR_KEY        the layer itself (default OFF — it is decoration).
-         CONTOUR_ANIM_KEY   the field slowly morphs (islands breathe/drift).
+         CONTOUR_KEY        the layer itself (default ON — a static sheet is the
+                            shipped look; zero per-frame cost while motion is off).
+         CONTOUR_ANIM_KEY   the field slowly morphs (islands breathe/drift),
+                            default OFF — the background ships STATIC.
 
        HOW IT IS DRAWN. The lines are real iso-contours of a scalar field, not a
        tiled bitmap or a hand-drawn path set, because the field is what makes the
@@ -1615,11 +1616,12 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     const CONTOUR_FPS_OPTIONS = [24, 60, 120]
     const CONTOUR_SPEED_OPTIONS = [1, 2, 4]
     const CONTOUR_PHASE_STEP = 1 / 150
-    // Default OFF (=== '1'): a background pattern must be opt-in.
-    const isContourOn = () => prefsGet(CONTOUR_KEY) === '1'
-    // Defaults ON, so enabling the layer shows the effect at once; it is
+    // Default ON (!== '0'): the contour sheet is the shipped background look.
+    const isContourOn = () => prefsGet(CONTOUR_KEY) !== '0'
+    // Default OFF (=== '1'): the sheet ships STATIC, so a fresh install does no
+    // per-frame work at all; turning motion on is an explicit choice, and it is
     // meaningless while the layer itself is off.
-    const isContourAnimOn = () => prefsGet(CONTOUR_ANIM_KEY) !== '0'
+    const isContourAnimOn = () => prefsGet(CONTOUR_ANIM_KEY) === '1'
     const readContourFps = () => {
       const fps = Number(prefsGet(CONTOUR_FPS_KEY))
       return CONTOUR_FPS_OPTIONS.includes(fps) ? fps : 24
@@ -5861,7 +5863,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       contourOn: '开启背景',
       contourOff: '关闭背景',
       contourHintOn: '当前配色的地形等高线铺满界面底层（置于所有内容之下）',
-      contourHintOff: '默认关闭；开启后在界面底层绘制等高线地形纹理',
+      contourHintOff: '开启后在界面底层绘制等高线地形纹理',
       contourTrailRow: '鼠标轨迹',
       contourTrailOn: '开启轨迹',
       contourTrailOff: '关闭轨迹',
@@ -6012,7 +6014,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       contourOn: 'Turn on',
       contourOff: 'Turn off',
       contourHintOn: 'Topographic contour lines fill the lowest layer, beneath all content',
-      contourHintOff: 'Off by default; draws a contour terrain texture behind the interface',
+      contourHintOff: 'Turning it on draws a contour terrain texture behind the interface',
       contourTrailRow: 'Mouse trail',
       contourTrailOn: 'Enable trail',
       contourTrailOff: 'Disable trail',

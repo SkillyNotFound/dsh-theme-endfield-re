@@ -102,6 +102,11 @@ const NAMESPACE = LEGACY_NAMESPACE;
  *   - palettes / radii / frame-rate / speed each store exactly one of their
  *     documented literals ('valley'/'wuling'; 'square'/'round'; fps in
  *     24/60/120; speed in 1/2/4), with the shipped default filled in here.
+ *
+ * Factory posture of the shipped defaults: the contour BACKGROUND is on and its
+ * MOTION is off (a static sheet costs no per-frame work), and audio
+ * notifications are on. `enabled` is the only master that switches the whole
+ * theme off; every other switch is independent.
  */
 const FIELD_DEFAULTS = {
   enabled: '1',             // 终末地主题 —— default on
@@ -110,8 +115,8 @@ const FIELD_DEFAULTS = {
   bokeh: 'standard',        // 中央散景 —— 等高线在画面对话中轴线虚化 (off/subtle/standard/strong)
   bokehWash: 'standard',    // 散景压暗 —— 虚化区域内进一步淡化等高线 (off/subtle/standard/strong)
   radius: 'square',         // 主题圆角 —— 直角
-  contour: '0',             // 等高线背景 —— default off
-  contourAnim: '1',         // 动态等高线 —— default on
+  contour: '1',             // 等高线背景 —— default on
+  contourAnim: '0',         // 动态等高线 —— default off（背景默认静态，零逐帧开销）
   contourFps: '24',         // 动态帧率 —— 24 FPS
   contourSpeed: '2',        // 动态速度 —— 标准 2x
   contourRenderer: 'canvas', // opt-in Worker/WebGL; original backend by default
@@ -129,11 +134,11 @@ const FIELD_DEFAULTS = {
   // a sound and a switch but is wired to nothing on purpose: an error that needs
   // no human decision must stay silent.
   //
-  // The MASTER switch ships OFF: sound is opt-in, so an install that upgrades
-  // into this feature never starts making noise on its own. The per-slot
-  // switches stay ON, which is why flipping the master on is enough to hear the
-  // live slots; each one can then be silenced individually.
-  audioEnabled: '0',        // 音频通知总开关 —— default OFF（默认不出声，需手动开启）
+  // The MASTER switch ships ON: the factory default is audible. Every slot
+  // below can then be silenced individually, and flipping the master off mutes
+  // all of them at once. The per-slot switches stay ON, so the master alone
+  // decides whether anything is heard at all.
+  audioEnabled: '1',        // 音频通知总开关 —— default ON（默认开启提示音）
   audioVolume: '100',        // 音量 0-100 —— rescaled PCM, not system volume
   audioBoot: '1',           // 启动加载动画音 —— 页面加载播放加载板时响一次
   audioTurnStart: '1',      // 任务开始音 —— 会话框提交后播放

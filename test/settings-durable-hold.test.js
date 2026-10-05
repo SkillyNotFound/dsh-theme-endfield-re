@@ -31,11 +31,11 @@ const ROOT = path.resolve(__dirname, '..')
 const src = fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8')
 
 const FIELD_DEFAULTS = {
-  enabled: '1', palette: 'valley', radius: 'square', contour: '0',
-  contourAnim: '1', contourFps: '24', contourSpeed: '2',
+  enabled: '1', palette: 'valley', radius: 'square', contour: '1',
+  contourAnim: '0', contourFps: '24', contourSpeed: '2',
   contourScrollPause: '1', watermark: '1', watermarkPersist: '0',
   loader: '0', thunder: '0', thunderAnim: '0',
-  audioEnabled: '0', audioVolume: '100', audioBoot: '1', audioTurnStart: '1', audioTurnDone: '1',
+  audioEnabled: '1', audioVolume: '100', audioBoot: '1', audioTurnStart: '1', audioTurnDone: '1',
   audioAttention: '1', audioTurnFail: '1', audioDebounceMs: '2500',
   audioSoundDir: '', audioHumanOnly: '1', audioDiag: '0',
 }
