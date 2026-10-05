@@ -288,29 +288,30 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        prefsFieldOf unchanged and equal the schema field names, so a switch can
        never write an undeclared field. */
     const AUDIO_ENABLED_KEY = 'audioEnabled'
-    const AUDIO_BOOT_KEY = 'audioBoot'
+    const AUDIO_VOLUME_KEY = 'audioVolume'
     const AUDIO_TURN_START_KEY = 'audioTurnStart'
     const AUDIO_TURN_DONE_KEY = 'audioTurnDone'
-    const AUDIO_VOLUME_KEY = 'audioVolume'
+    const AUDIO_ATTENTION_KEY = 'audioAttention'
+    const AUDIO_TURN_FAIL_KEY = 'audioTurnFail'
     const AUDIO_HUMAN_ONLY_KEY = 'audioHumanOnly'
+    const AUDIO_BOOT_KEY = 'audioBoot'
     const AUDIO_DIAG_KEY = 'audioDiag'
-    const AUDIO_SOUND_DIR_KEY = 'audioSoundDir'
-    const AUDIO_STATE_URL = '/theme-endfield/audio/state'
     const AUDIO_PREVIEW_URL = '/theme-endfield/audio/preview'
     const AUDIO_ATTENTION_URL = '/theme-endfield/audio/attention'
-    // Default ON for the master switch and both live slots; default OFF for the
+    // Default ON for the master switch and every slot; default OFF for the
     // diagnostics switch, so the host console stays quiet unless asked.
     const isAudioOn = () => prefsGet(AUDIO_ENABLED_KEY) !== '0'
-    const isAudioBootOn = () => prefsGet(AUDIO_BOOT_KEY) !== '0'
     const isAudioStartOn = () => prefsGet(AUDIO_TURN_START_KEY) !== '0'
     const isAudioDoneOn = () => prefsGet(AUDIO_TURN_DONE_KEY) !== '0'
+    const isAudioAttentionOn = () => prefsGet(AUDIO_ATTENTION_KEY) !== '0'
+    const isAudioTurnFailOn = () => prefsGet(AUDIO_TURN_FAIL_KEY) !== '0'
     const isAudioHumanOnly = () => prefsGet(AUDIO_HUMAN_ONLY_KEY) !== '0'
+    const isAudioBootOn = () => prefsGet(AUDIO_BOOT_KEY) !== '0'
     const isAudioDiagOn = () => prefsGet(AUDIO_DIAG_KEY) === '1'
     const readAudioVolume = () => {
       const parsed = Number.parseInt(prefsGet(AUDIO_VOLUME_KEY), 10)
       return Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 100
     }
-    const readAudioSoundDir = () => prefsGet(AUDIO_SOUND_DIR_KEY) || ''
     /** Ask the host to play one slot through the real notification path. */
     const previewSlot = (slot) => {
       if (typeof fetch !== 'function') return Promise.resolve({ played: false, why: 'no fetch' })
@@ -436,6 +437,14 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        report from a page whose settings page was never opened is expected to
        show nothing, and must not be mistaken for a failure. */
     let panelMounted = false
+    /* Which CHAPTER the settings page has open (the selector strip at its top).
+       Held in the apply scope rather than in the panel's React state because the
+       panel is re-registered — and therefore remounted, losing its hooks — on a
+       language switch and on any re-derivation of the settings seat; the chosen
+       chapter has to survive that. It is deliberately NOT a durable preference:
+       it is a view, not a setting, so nothing is written to the settings
+       namespace for it. */
+    let settingsChapter = 'theme'
     /* --- transport selection ------------------------------------------------
        Two DSH generations expose the same durable-preference seam under
        different names, and the theme has to work on both without throwing on
@@ -4625,8 +4634,16 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       /* ---------- Hover text contrast (reference page inversion) ---------- */
       /* Note: plain buttons are excluded — their own fill/text color must survive hover
-         (e.g. yellow toggle button keeps black text; white-on-dark send button stays white). */
-      :is([role='tab'], [role='menuitem'], [role='option'], [role='link'], [role='treeitem'], [role='checkbox'], [role='switch'], [role='radio'], [role='combobox'], [class*='nav-item' i], [class*='menu-item' i], [class*='list-item' i], [class*='session-item' i], [class*='workspace-item' i], [class*='search-result' i], [class*='item' i], [class*='tab' i], [class*='card' i], [class*='row' i], [class*='tool' i], [class*='composer' i]):hover {
+         (e.g. yellow toggle button keeps black text; white-on-dark send button stays white).
+
+         The theme's OWN settings panel is excluded for the same reason, and it is the
+         stronger case: every control in there declares its ink inline (a selected
+         chapter segment is an accent-filled chip with black text), and an '!important'
+         hover repaint beats an inline declaration. Left in, hovering the selected
+         segment turned its label into --dsw-alias-label-primary — near-white in dark
+         mode — i.e. white on signal yellow. Nothing in the panel needs this rule:
+         it is app-chrome contrast, and the panel is not app chrome. */
+      :is([role='tab'], [role='menuitem'], [role='option'], [role='link'], [role='treeitem'], [role='checkbox'], [role='switch'], [role='radio'], [role='combobox'], [class*='nav-item' i], [class*='menu-item' i], [class*='list-item' i], [class*='session-item' i], [class*='workspace-item' i], [class*='search-result' i], [class*='item' i], [class*='tab' i], [class*='card' i], [class*='row' i], [class*='tool' i], [class*='composer' i]):not(.endfield-settings *):hover {
         color: var(--dsw-alias-label-primary) !important;
       }
       /* ---------- Workspace browser rows (ui-sidebar) ---------- */
@@ -5909,6 +5926,15 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       groupBg: '背景',
       groupAnim: '动画',
       groupFun: '娱乐',
+      /* The chapter selector's segment labels. SHORT by design: a segment is a
+         fifth of the panel, so the full editorial name (and, under English, the
+         all-caps latin line) would be clipped there. The full name stays the
+         segment's tooltip and the chapter header's own text. */
+      tabTheme: '主题',
+      tabBg: '背景',
+      tabAnim: '动画',
+      tabFun: '娱乐',
+      tabAudio: '音频',
       themeRow: '终末地主题',
       themeOn: '开启主题',
       themeOff: '关闭主题',
@@ -6000,11 +6026,9 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       audioOn: '开启提示音',
       audioOff: '关闭提示音',
       audioHintOn: '由宿主进程播放，页面最小化或切到别的应用时同样能听到',
-      audioHintOff: '默认关闭；开启后按下面的开关出声（也可以只留想要的几个）',
-      audioBootRow: '启动加载动画音',
-      audioBootOn: '开启',
-      audioBootOff: '关闭',
-      audioBootHint: '播放 ENDFIELD 加载板时响一次；只认真正的页面加载，点「预览」重播不会响',
+      audioHintOff: '开启后按下面的开关出声（也可以只留想要的几个）',
+      audioVolumeRow: '音量',
+      audioVolumeHint: '只缩放提示音本身，不改系统音量',
       audioStartRow: '任务开始音',
       audioStartOn: '开启',
       audioStartOff: '关闭',
@@ -6013,32 +6037,28 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       audioDoneOn: '开启',
       audioDoneOff: '关闭',
       audioDoneHint: '只在我产出最终结果后播放；中途报错或等待审批时不出声',
-      audioVolumeRow: '音量',
-      audioVolumeHint: '只缩放提示音本身，不改系统音量',
+      audioAttentionRow: '需要你回应',
+      audioAttentionOn: '开启',
+      audioAttentionOff: '关闭',
+      audioAttentionHint: '审批请求、我的提问、计划求批都会响',
+      audioTurnFailRow: '出错提示音',
+      audioTurnFailOn: '开启',
+      audioTurnFailOff: '关闭',
+      audioTurnFailHint: '预留槽位：目前没有事件接线，不需要人工干预的错误保持静音',
       audioSlotStart: '开始',
       audioSlotDone: '结束',
       audioSlotBoot: '开机',
       audioSlotAttention: '待回应',
       audioSlotFail: '出错',
-      audioSlotQuestion: '提问',
-      audioSlotApproval: '审批',
-      audioSlotUi: '界面',
-      audioAttentionRow: '需要你回应',
-      audioTurnFailRow: '出错提示音',
-      audioReservedHint: '审批请求、我的提问、计划求批都会响',
-      audioReservedNeed: '无事件接线：不需要人工干预的错误保持静音',
-      audioSoundDirRow: '自定义音效目录',
-      audioSoundDirHint: '把 turn-start.wav / turn-done.wav 放进该目录即可覆盖内置音；留空则查工作区与桌面',
-      audioSoundDirDefault: '未设置（用桌面 / 工作区 / 内置音）',
-      audioFileRow: '当前音源',
-      audioFileBundled: '内置合成音',
-      audioFileOwn: '自定义文件',
-      audioFileMissing: '未找到文件',
       audioHumanOnlyRow: '开始音仅认会话框',
       audioHumanOnlyOn: '仅会话框',
       audioHumanOnlyOff: '宽松模式',
       audioHumanOnlyHintOn: '只认带提交凭据的用户消息，最不容易误触发',
       audioHumanOnlyHintOff: '任何用户来源消息都算（调试用，后台唤醒可能误响）',
+      audioBootRow: '启动加载动画音',
+      audioBootOn: '开启',
+      audioBootOff: '关闭',
+      audioBootHint: '播放 ENDFIELD 加载板时响一次；只认真正的页面加载，点「预览」重播不会响',
       audioDiagRow: '诊断日志',
       audioDiagOn: '开启',
       audioDiagOff: '关闭',
@@ -6049,7 +6069,6 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       audioTestFail: '宿主未播放',
       audioTestOff: '请先开启音频通知',
       audioNeedOn: '请先开启音频通知',
-      audioRefresh: '刷新状态',
     }
     const LOCALE_EN = {
       nav: 'Endfield Theme',
@@ -6062,6 +6081,14 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       groupBg: 'BACKGROUND',
       groupAnim: 'ANIMATION',
       groupFun: 'ENTERTAINMENT',
+      /* Short segment labels for the chapter selector (see the zh dictionary):
+         "04 ENTERTAINMENT" does not fit a fifth of the panel, and 娱乐 reads as
+         "Extras" rather than "Fun" — the chapter holds the announcement extras. */
+      tabTheme: 'Theme',
+      tabBg: 'Background',
+      tabAnim: 'Animation',
+      tabFun: 'Extras',
+      tabAudio: 'Audio',
       themeRow: 'Endfield theme',
       themeOn: 'Turn on',
       themeOff: 'Turn off',
@@ -6151,11 +6178,9 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       audioOn: 'Turn on',
       audioOff: 'Turn off',
       audioHintOn: 'Played by the host process, so a minimized page or another app in front still gets the sound',
-      audioHintOff: 'Off by default; turning it on enables the slots below (keep only the ones you want)',
-      audioBootRow: 'Boot animation sound',
-      audioBootOn: 'Turn on',
-      audioBootOff: 'Turn off',
-      audioBootHint: 'Rings once when the ENDFIELD boot plate plays; a real page load only — the Preview button replays it silently',
+      audioHintOff: 'Turning it on enables the slots below (keep only the ones you want)',
+      audioVolumeRow: 'Volume',
+      audioVolumeHint: 'Rescales only the notification sound, never the system volume',
       audioStartRow: 'Task-start sound',
       audioStartOn: 'Turn on',
       audioStartOff: 'Turn off',
@@ -6164,32 +6189,28 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       audioDoneOn: 'Turn on',
       audioDoneOff: 'Turn off',
       audioDoneHint: 'Plays only after the final answer; interrupted turns and approval waits stay silent',
-      audioVolumeRow: 'Volume',
-      audioVolumeHint: 'Rescales only the notification sound, never the system volume',
+      audioAttentionRow: 'Needs your response',
+      audioAttentionOn: 'Turn on',
+      audioAttentionOff: 'Turn off',
+      audioAttentionHint: 'Fires on approval requests, my questions and plan reviews',
+      audioTurnFailRow: 'Error sound',
+      audioTurnFailOn: 'Turn on',
+      audioTurnFailOff: 'Turn off',
+      audioTurnFailHint: 'Reserved slot: nothing is wired to it yet, so an error needing no human decision stays silent',
       audioSlotStart: 'Start',
       audioSlotDone: 'Done',
       audioSlotBoot: 'Boot',
       audioSlotAttention: 'Attention',
       audioSlotFail: 'Error',
-      audioSlotQuestion: 'Questions',
-      audioSlotApproval: 'Approvals',
-      audioSlotUi: 'Seen',
-      audioAttentionRow: 'Needs your response',
-      audioTurnFailRow: 'Error sound',
-      audioReservedHint: 'Fires on approval requests, my questions and plan reviews',
-      audioReservedNeed: 'Not wired by design: an error needing no human decision stays silent',
-      audioSoundDirRow: 'Custom sound directory',
-      audioSoundDirHint: 'Drop turn-start.wav / turn-done.wav there to override the built-in tone; blank falls back to the workspace and the Desktop',
-      audioSoundDirDefault: 'Not set (Desktop / workspace / bundled)',
-      audioFileRow: 'Current source',
-      audioFileBundled: 'Bundled synthesized tone',
-      audioFileOwn: 'Your own file',
-      audioFileMissing: 'No file found',
       audioHumanOnlyRow: 'Start sound: composer only',
       audioHumanOnlyOn: 'Composer only',
       audioHumanOnlyOff: 'Loose mode',
       audioHumanOnlyHintOn: 'Requires the submission credential a real prompt carries — least likely to misfire',
       audioHumanOnlyHintOff: 'Any user-source message counts (debugging; background wakeups may misfire)',
+      audioBootRow: 'Boot animation sound',
+      audioBootOn: 'Turn on',
+      audioBootOff: 'Turn off',
+      audioBootHint: 'Rings once when the ENDFIELD boot plate plays; a real page load only — the Preview button replays it silently',
       audioDiagRow: 'Diagnostics',
       audioDiagOn: 'Turn on',
       audioDiagOff: 'Turn off',
@@ -6200,7 +6221,6 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       audioTestFail: 'The host did not play it',
       audioTestOff: 'Turn audio notifications on first',
       audioNeedOn: 'Turn audio notifications on first',
-      audioRefresh: 'Refresh state',
     }
 
     /* The locale service is optional, exactly like `theme` and `sessions`: the
@@ -6225,6 +6245,86 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     }
 
     /* ---------- Settings page: 主题 (own settings.section) ---------- */
+    /* The five chapters of the settings page, in editorial order. One row drives
+       three things at once — the selector strip's segment, the group container and
+       the aria wiring between them — so a chapter can never appear in the strip
+       without a panel to open, or vice versa.
+
+         id     the value stored in `settingsChapter`
+         group  the group container's React key (kept verbatim: the page's tests
+                and the stylesheet both address groups by these keys)
+         no     the editorial number the group header already shows
+         short  the SHORT label used in the strip (a segment is ~1/5 of a 640px
+                page, so the full editorial name — "04 ENTERTAINMENT" — would be
+                clipped there; the full name is the segment's title and the group
+                header's own text)
+         full   the group header's / tooltip's label key */
+    const SETTINGS_CHAPTERS = [
+      { id: 'theme', group: 'group-theme', no: '01', short: 'tabTheme', full: 'groupTheme' },
+      { id: 'bg', group: 'group-bg', no: '02', short: 'tabBg', full: 'groupBg' },
+      { id: 'anim', group: 'group-anim', no: '03', short: 'tabAnim', full: 'groupAnim' },
+      { id: 'fun', group: 'group-fun', no: '04', short: 'tabFun', full: 'groupFun' },
+      { id: 'audio', group: 'group-audio', no: '05', short: 'tabAudio', full: 'groupAudio' },
+    ]
+    const SETTINGS_CHAPTER_IDS = SETTINGS_CHAPTERS.map((chapter) => chapter.id)
+
+    /* ---------- settings page: keep the panel's WIDTH stable ----------
+       The settings page scrolls, and a CLASSIC scrollbar takes layout width (the
+       theme styles one: ::-webkit-scrollbar { width: 10px }). Only the long chapters
+       overflow, so switching chapters made the scrollbar appear and disappear and the
+       whole panel changed width with it — measured in a mock of the app's scroll area:
+       the chapter strip is 520px on 主题 (4 rows, no scrollbar) and 510px on 音频
+       (11 rows, scrollbar). Every chapter switch moved both edges of the strip, which
+       is the flicker this fixes.
+
+       `scrollbar-gutter: stable` reserves that space whether or not a scrollbar is
+       shown, so the content box never changes width. It has to sit on the SCROLLER,
+       not on the panel, so the scroller is found STRUCTURALLY — the nearest ancestor
+       that actually scrolls vertically — for the same reason findAppFrame() is: the
+       app's class names are hashed and rotate between builds, and a `[class$='_x']`
+       guess rots silently.
+
+       Applied when the settings panel mounts (that is the only time it matters) and
+       restored on dispose, so uninstalling the theme leaves the app's DOM as it was.
+       Every DOM touch is guarded: the in-process panel tests run against a minimal
+       stub with no getComputedStyle, and a missing scroller must degrade to "no
+       change", never to a throw. */
+    let settingsScrollHost = null
+    let settingsScrollHostGutter = null
+    const stabilizeSettingsScrollbar = () => {
+      if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return
+      /* Already reserved on a node that is still in the document: nothing to do.
+         (`isConnected` is feature-detected — the stub elements do not have it.) */
+      if (settingsScrollHost !== null
+        && (settingsScrollHost.isConnected === undefined || settingsScrollHost.isConnected === true)) return
+      if (settingsScrollHost !== null) { settingsScrollHost = null; settingsScrollHostGutter = null }
+      const panel = typeof document.querySelector === 'function' ? document.querySelector('.endfield-settings') : null
+      let node = panel === null || panel === undefined ? null : panel.parentElement
+      while (node !== null && node !== undefined && node !== document.body) {
+        if (node.nodeType !== 1) break
+        let overflowY = ''
+        try { overflowY = getComputedStyle(node).overflowY } catch (error) { overflowY = '' }
+        if (overflowY === 'auto' || overflowY === 'scroll') {
+          if (node.style !== undefined && 'scrollbarGutter' in node.style) {
+            settingsScrollHostGutter = node.style.scrollbarGutter
+            node.style.scrollbarGutter = 'stable'
+            settingsScrollHost = node
+          }
+          return
+        }
+        node = node.parentElement
+      }
+    }
+    const releaseSettingsScrollbar = () => {
+      if (settingsScrollHost === null) return
+      try {
+        if (settingsScrollHost.style !== undefined) {
+          settingsScrollHost.style.scrollbarGutter = settingsScrollHostGutter === null ? '' : settingsScrollHostGutter
+        }
+      } catch (error) { /* the node may already be gone: nothing to restore */ }
+      settingsScrollHost = null
+      settingsScrollHostGutter = null
+    }
     const slots = ctx.get('slots')
     const disposeRows = []
     let disposeSettings = () => { disposeRows.forEach((d) => d()) }
@@ -6272,25 +6372,34 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           const [bokehWash, setBokehWash] = R.useState(readBokehWash())
           const [mode, setMode] = R.useState(prefsGet(RADIUS_KEY) || 'square')
           /* 音频通知 is a HOST feature: the browser only owns its switches and
-             the preview buttons. `hostState` mirrors what the host half reports
-             over /theme-endfield/audio/state (which file each slot actually
-             resolved to), so the panel can show the truth instead of assuming
-             the bundled tone is in use. */
+             the preview buttons. Every switch maps 1:1 onto a schema field the
+             host half reads (`lib/audio.js` decides whether a slot may sound), so
+             the panel never reports a state the host disagrees with. The rows are
+             ordered master → volume → slots, with the two rarely used rows
+             (启动加载动画音, 诊断日志) at the bottom of the chapter. */
           const [audioOn, setAudioOn] = R.useState(isAudioOn())
-          const [audioBoot, setAudioBoot] = R.useState(isAudioBootOn())
+          const [audioVolume, setAudioVolume] = R.useState(readAudioVolume())
           const [audioStart, setAudioStart] = R.useState(isAudioStartOn())
           const [audioDone, setAudioDone] = R.useState(isAudioDoneOn())
-          const [audioVolume, setAudioVolume] = R.useState(readAudioVolume())
+          const [audioAttention, setAudioAttention] = R.useState(isAudioAttentionOn())
+          const [audioTurnFail, setAudioTurnFail] = R.useState(isAudioTurnFailOn())
           const [audioHumanOnly, setAudioHumanOnly] = R.useState(isAudioHumanOnly())
+          const [audioBoot, setAudioBoot] = R.useState(isAudioBootOn())
           const [audioDiag, setAudioDiag] = R.useState(isAudioDiagOn())
-          const [hostState, setHostState] = R.useState(null)
           const [previewNote, setPreviewNote] = R.useState('')
-          const refreshHostState = () => {
-            if (typeof fetch !== 'function') return
-            fetch(AUDIO_STATE_URL, { headers: { accept: 'application/json' } })
-              .then((res) => (res.ok ? res.json() : null))
-              .then((json) => { if (json) setHostState(json) })
-              .catch(() => { /* host bridge absent: the rows simply show no source */ })
+          /* The chapter selector's live selection. Seeded from the apply-scope
+             memory so a remount (language switch, seat re-derivation) reopens the
+             chapter the user was in; every write goes through the memory first, so
+             the two can never disagree about what "the selected chapter" is. */
+          const [activeChapter, setActiveChapter] = R.useState(settingsChapter)
+          const selectChapter = (id) => {
+            if (!SETTINGS_CHAPTER_IDS.includes(id)) return
+            settingsChapter = id
+            setActiveChapter(id)
+            /* Re-assert the reserved scrollbar gutter: this is the moment the
+               content height (and therefore the scrollbar) changes, and the app may
+               have replaced the scroller node since the last check. */
+            stabilizeSettingsScrollbar()
           }
           /* Re-sync the panel onto the settings section when it finally arrives.
              Every useState above seeded itself from prefsGet() during the FIRST
@@ -6345,14 +6454,21 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                  panel's first render, which would otherwise leave every audio
                  switch frozen at its schema default for the whole session. */
               setAudioOn(isAudioOn())
-              setAudioBoot(isAudioBootOn())
+              setAudioVolume(readAudioVolume())
               setAudioStart(isAudioStartOn())
               setAudioDone(isAudioDoneOn())
-              setAudioVolume(readAudioVolume())
+              setAudioAttention(isAudioAttentionOn())
+              setAudioTurnFail(isAudioTurnFailOn())
               setAudioHumanOnly(isAudioHumanOnly())
+              setAudioBoot(isAudioBootOn())
               setAudioDiag(isAudioDiagOn())
             }
             R.useEffect(() => {
+              /* Reserve the app's scrollbar gutter FIRST, and from an EFFECT rather
+                 than from the render body: the panel's nodes only exist after the
+                 commit, so a render-time walk would look at the previous DOM (or at
+                 nothing, on the first render) and silently find no scroller. */
+              stabilizeSettingsScrollbar()
               /* Subscribe FIRST, then re-derive once. A subscription alone is not
                  enough: the panel can finish mounting AFTER the section already
                  settled, in which case the ready transition that would have
@@ -6365,14 +6481,6 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
               resyncPanelFromPrefs()
               return unsubscribe
             }, [])
-            // One read per panel mount: the host is the only authority on which
-            // file each slot resolved to, and re-reading on every render would
-            // hammer the route while the user drags the volume slider. Guarded
-            // with the effect above, because the in-process settings tests drive
-            // this panel with a minimal recording React that has no effect hook
-            // at all — an unguarded call would turn "cannot refresh the source
-            // read-out" into "the whole panel throws".
-            R.useEffect(() => { refreshHostState() }, [])
           }
           const rowStyle = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '12px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' }
           const labelStyle = { color: 'var(--dsw-alias-label-primary)', fontSize: '13px', fontWeight: 500, lineHeight: '1.5' }
@@ -6639,6 +6747,23 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
             setAudioDone(next)
             if (next) playPreview('turn-done')
           }
+          /* 需要你回应 / 出错提示音 used to be preview-only rows (a read-out plus a
+             试听 button) because the fail slot has no event wired to it. They now
+             carry the same on/off switch as every other row: a switch that writes
+             the field it claims to write, whether or not an event currently reaches
+             that slot. The reserved one says so in its hint instead of hiding. */
+          const toggleAudioAttention = () => {
+            const next = !audioAttention
+            prefsSet(AUDIO_ATTENTION_KEY, next ? '1' : '0')
+            setAudioAttention(next)
+            if (next) playPreview('attention')
+          }
+          const toggleAudioTurnFail = () => {
+            const next = !audioTurnFail
+            prefsSet(AUDIO_TURN_FAIL_KEY, next ? '1' : '0')
+            setAudioTurnFail(next)
+            if (next) playPreview('turn-fail')
+          }
           const setAudioVolumeValue = (next) => {
             const clamped = Math.min(100, Math.max(0, Math.round(next)))
             prefsSet(AUDIO_VOLUME_KEY, String(clamped))
@@ -6654,78 +6779,63 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
             prefsSet(AUDIO_DIAG_KEY, next ? '1' : '0')
             setAudioDiag(next)
           }
-          const applySoundDir = (value) => {
-            const text = typeof value === 'string' ? value.trim() : ''
-            prefsSet(AUDIO_SOUND_DIR_KEY, text)
-            refreshHostState()
-          }
-          /** The host's view of one slot, or undefined while it has not answered. */
-          const slotState = (slot) => {
-            if (hostState === null || !Array.isArray(hostState.slots)) return undefined
-            return hostState.slots.find((entry) => entry.id === slot)
-          }
-          // The two reserved rows have no switch, so their value read-out reports
-          // whether the SOUND is previewable instead of pretending to be a toggle.
-          const audioTestReady = () => (hostState === null ? true : slotState('attention') !== undefined)
-          const sourceSummary = () => {
-            const done = slotState('turn-done')
-            if (done === undefined) return '—'
-            if (done.file === null) return t('audioFileMissing')
-            return done.bundled ? t('audioFileBundled') : t('audioFileOwn')
-          }
-          const sourceDetail = () => {
-            const rows = []
-            for (const slot of ['boot', 'turn-start', 'turn-done']) {
-              const state = slotState(slot)
-              const name = slot === 'boot' ? t('audioSlotBoot') : slot === 'turn-start' ? t('audioSlotStart') : t('audioSlotDone')
-              rows.push(name + t('sep') + (state === undefined || state.file === null ? t('audioFileMissing') : state.file))
-            }
-            /* How many intervention requests this host half has actually seen.
-               Without it, "no sound" cannot distinguish "the event never reached
-               the plugin" from "the plugin chose to stay silent" — the two are
-               indistinguishable from the page. Re-open this page (or press 刷新)
-               after answering a question to watch the counter move. */
-            if (hostState !== null && hostState.attention !== undefined) {
-              rows.push(t('audioAttentionRow') + t('sep')
-                + t('audioSlotUi') + ' ' + String(hostState.attention.ui)
-                + ' / ' + t('audioSlotQuestion') + ' ' + String(hostState.attention.question)
-                + ' / ' + t('audioSlotApproval') + ' ' + String(hostState.attention.approval))
-            }
-            if (hostState !== null && Array.isArray(hostState.log) && hostState.log.length > 0) {
-              const last = hostState.log[hostState.log.length - 1]
-              rows.push(t('audioDiagRow') + t('sep') + last.kind + (last.detail ? ' ' + last.detail : ''))
-            }
-            return rows.join('　·　')
-          }
           const pageStyle = { maxWidth: '640px', padding: '4px 0 16px' }
-          /* The ten switches are grouped into four concerns so the page can be
-             scanned instead of read as a flat list: 主题 (master switch +
-             appearance), 背景 (contour sheet + watermark), 动画 (boot loader),
-             娱乐 (雷霆大字 announcements + their entry animation).
+          /* The switches are grouped into the five chapters the selector above
+             offers, so the page can be scanned instead of read as a flat list.
              Each group is an editorial numbered header; rows keep their stable
-             React keys. The last row of each group drops its divider so the next
-             group header's own rule is the only line between groups.
+             React keys. The last row of each group drops its divider, so the
+             group's own closing edge is what ends the chapter.
 
              The header shows the group name in the ACTIVE language plus a latin
              all-caps line. Under English both would collapse to the same word, so
              the second line is dropped there rather than printed twice — the latin
-             line is editorial styling for the Chinese name, not a translation. */
-          const groupTitle = (no, key, first) => {
+             line is editorial styling for the Chinese name, not a translation.
+
+             No top margin: exactly one chapter is on screen at a time, so every
+             header is the first thing under the strip, and the strip's own
+             margin-bottom is the whole gap. (Before the selector, chapters 02-05
+             carried a 26px top margin to separate themselves from the chapter
+             above — which would now be a different gap on every chapter, and a
+             visible jump when switching.) */
+          const groupTitle = (no, key) => {
             const name = t(key)
             const latin = LOCALE_EN[key]
+            /* Type scale is the SELECTED CHAPTER'S OWN HEADING, so it is sized as a
+               heading rather than as a row label: the name is twice the row scale
+               (24px against the rows' 12px), which is what makes the chapter you just
+               switched to read as a title and not as one more line of the list. The
+               mark grows with it so the accent bar stays proportional instead of
+               shrinking into a tick.
+
+               The latin line is deliberately SMALLER than the ratio the rows use
+               (18px here, i.e. one step down from the 20px it shipped with at first,
+               and 0.75 of the name against the rows' 0.83): at 24px the name already
+               carries the hierarchy, and a second line at nearly the same optical
+               weight competed with it instead of supporting it. */
             const parts = [
-              R.createElement('span', { key: 'mark', 'aria-hidden': 'true', style: { width: '4px', height: '14px', flex: '0 0 auto', background: 'currentColor' } }),
-              R.createElement('span', { key: 'cn', style: { fontSize: '12px', fontWeight: 600, letterSpacing: '0.14em', lineHeight: '1.5' } }, no + ' ' + name),
+              R.createElement('span', { key: 'mark', 'aria-hidden': 'true', style: { width: '8px', height: '28px', flex: '0 0 auto', background: 'currentColor' } }),
+              R.createElement('span', { key: 'cn', style: { fontSize: '24px', fontWeight: 600, letterSpacing: '0.14em', lineHeight: '1.35' } }, no + ' ' + name),
             ]
             if (latin !== undefined && latin !== name) {
-              parts.push(R.createElement('span', { key: 'en', style: { fontSize: '10px', fontWeight: 500, letterSpacing: '0.2em', opacity: 0.72, lineHeight: '1.5' } }, latin))
+              /* BOTTOM-aligned against the name, not centred. The row is centred
+                 (`alignItems: 'center'` above), which floats the small caps line in
+                 the middle of the big one's line box; `alignSelf: 'flex-end'` drops
+                 it onto the name's bottom edge instead — the editorial pairing of a
+                 small latin line sitting on the large CJK name. Measured in the
+                 browser with the theme's own font stack (Arial metrics, identical in
+                 both schemes): the 18px line box is 24.3px against the 24px name's
+                 32.39px, so bottom alignment puts the latin baseline 1.55px BELOW the
+                 name's (it was ~1.4px ABOVE when centred) and the two boxes' bottom
+                 edges coincide exactly. The mark keeps the row's centring: it is a
+                 bar, not text. */
+              parts.push(R.createElement('span', { key: 'en', style: { fontSize: '18px', fontWeight: 500, letterSpacing: '0.2em', opacity: 0.72, lineHeight: '1.35', alignSelf: 'flex-end' } }, latin))
             }
             return R.createElement('div', {
               key: 'group-title-' + no,
               className: 'endfield-settings-group-title',
               style: {
-                display: 'flex', alignItems: 'center', gap: '8px',
-                marginTop: first ? '0' : '26px', paddingBottom: '8px',
+                display: 'flex', alignItems: 'center', gap: '12px',
+                marginTop: '0', paddingBottom: '12px',
                 borderBottom: '1px solid var(--dsw-alias-border-l1)',
               },
             }, parts)
@@ -6733,10 +6843,134 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           /** "<row label>: <on|off>" — one spelling for every status row. */
           const stateOf = (on) => t(on ? 'on' : 'off')
           const row = (key, last, children) => R.createElement('div', { key, style: last ? { ...rowStyle, borderBottom: 'none' } : rowStyle }, children)
+
+          /* ---------- chapter selector (滑动槽) ----------
+             Five chapters on one page is a lot of scrolling, so the panel opens
+             with a segmented selector and shows ONE chapter at a time.
+
+             WHY THE INACTIVE CHAPTERS STAY MOUNTED. They are hidden with
+             `display:none` rather than dropped from the tree, so switching is a
+             style flip instead of a remount: no row is rebuilt (the panel's rows
+             hold no per-row state today, but a remount is the kind of thing that
+             silently resets a control later), the tree keeps all 29 rows for the
+             tests that count them, and the browser's own focus handling cannot
+             land on a row that is being torn down.
+
+             WHY THE MOVING PART IS A SEPARATE, ARIA-HIDDEN SPAN. The "sliding
+             groove" is a decorative thumb painted UNDER the labels; the labels
+             themselves stay transparent so the thumb is what moves. That keeps
+             the geometry honest without measuring anything: every segment is
+             `flex: 1 1 0` (equal fifths of the strip) and the thumb is 20% wide,
+             translated by `index * 100%` of its OWN width — no layout read, no
+             ResizeObserver, and it stays correct when the strip is resized or the
+             locale changes the label lengths.
+
+             The thumb's fill and the active label's ink are the SAME pair the
+             row switches use (`btnStyleFor(true)`), including the theme-off
+             fallback to app-native tokens — see the long note in btnStyleFor for
+             why a literal accent colour cannot be used here. */
+          const activeChapterId = SETTINGS_CHAPTER_IDS.includes(activeChapter) ? activeChapter : SETTINGS_CHAPTER_IDS[0]
+          const activeChapterIndex = SETTINGS_CHAPTER_IDS.indexOf(activeChapterId)
+          const stripStyle = {
+            position: 'relative', display: 'flex', alignItems: 'stretch',
+            border: '1px solid var(--dsw-alias-border-l1)',
+            // With the theme off, --edge-btn-muted does not exist (its stylesheet
+            // went with the theme), so the groove falls back to an app token.
+            background: enabled ? 'var(--edge-btn-muted)' : 'var(--dsw-alias-bg-layer-1)',
+            borderRadius: mode === 'round' ? '999px' : '0',
+            overflow: 'hidden', marginBottom: '18px',
+          }
+          const thumbStyle = {
+            position: 'absolute', top: 0, left: 0, height: '100%',
+            width: (100 / SETTINGS_CHAPTERS.length) + '%',
+            background: enabled ? 'var(--edge-accent)' : 'var(--dsw-alias-interactive-bg-hover-solid)',
+            transform: 'translateX(' + (activeChapterIndex * 100) + '%)',
+            transition: 'transform 200ms cubic-bezier(.22,.61,.36,1)',
+            borderRadius: mode === 'round' ? '999px' : '0',
+            pointerEvents: 'none', zIndex: 0,
+          }
+          const chapterInk = (isActive) => (isActive && enabled ? '#000' : 'var(--dsw-alias-label-primary)')
+          /* Arrow keys move the selection, as a tablist is expected to: the
+             segments carry a ROVING tabindex (only the selected one is in the tab
+             order), so focus has to follow the selection — otherwise the keystroke
+             would leave focus on a segment that just became unreachable. Both DOM
+             touches are guarded: the in-process panel tests run against a minimal
+             document stub with no getElementById. */
+          const onChapterKeyDown = (event, index) => {
+            const key = event === undefined || event === null ? '' : event.key
+            const last = SETTINGS_CHAPTERS.length - 1
+            let next = -1
+            if (key === 'ArrowRight' || key === 'ArrowDown') next = index === last ? 0 : index + 1
+            else if (key === 'ArrowLeft' || key === 'ArrowUp') next = index === 0 ? last : index - 1
+            else if (key === 'Home') next = 0
+            else if (key === 'End') next = last
+            if (next < 0) return
+            if (typeof event.preventDefault === 'function') event.preventDefault()
+            const target = SETTINGS_CHAPTERS[next]
+            selectChapter(target.id)
+            if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+              const el = document.getElementById('endfield-tab-' + target.id)
+              if (el !== null && typeof el.focus === 'function') el.focus()
+            }
+          }
+          const chapterTab = (chapter, index) => {
+            const isActive = chapter.id === activeChapterId
+            return R.createElement('button', {
+              key: 'tab-' + chapter.id,
+              type: 'button',
+              role: 'tab',
+              id: 'endfield-tab-' + chapter.id,
+              'aria-selected': isActive ? 'true' : 'false',
+              'aria-controls': 'endfield-panel-' + chapter.id,
+              // Roving tabindex: Tab enters the strip on the selected segment.
+              tabIndex: isActive ? 0 : -1,
+              onClick: () => selectChapter(chapter.id),
+              onKeyDown: (event) => onChapterKeyDown(event, index),
+              // The short label fits a fifth of the panel — NO chapter number: five
+              // "01 …" prefixes on one row read as clutter, and the number is still
+              // on the chapter's own header (and in this tooltip).
+              title: chapter.no + ' ' + t(chapter.full),
+              style: {
+                position: 'relative', zIndex: 1, flex: '1 1 0', minWidth: 0,
+                padding: '9px 4px', margin: 0, border: 'none', background: 'transparent',
+                color: chapterInk(isActive),
+                fontSize: '12px', fontWeight: isActive ? 600 : 500,
+                letterSpacing: '0.06em', lineHeight: '1.4', fontFamily: 'inherit',
+                cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                borderRadius: mode === 'round' ? '999px' : '0',
+                /* NO `transition` on the label colour, deliberately: a colour
+                   transition makes the text read as the OLD scheme's ink for the
+                   length of the fade, so a light->dark flip would paint near-black
+                   on the dark panel for 140ms. That is exactly the contrast hole
+                   test/settings-off.test.js measures, and it caught it. The
+                   sliding thumb carries the motion instead. */
+              },
+            }, t(chapter.short))
+          }
+          const chapterSelector = R.createElement('div', {
+            key: 'tabs',
+            role: 'tablist',
+            // Names the SET of chapters; the panel's own nav row already carries
+            // the theme's name, so no extra string is needed for this.
+            'aria-label': t('nav'),
+            className: 'endfield-settings-tabs',
+            style: stripStyle,
+          }, [
+            R.createElement('span', { key: 'thumb', 'aria-hidden': 'true', style: thumbStyle }),
+            ...SETTINGS_CHAPTERS.map(chapterTab),
+          ])
+          const chapterPanel = (chapter, children) => R.createElement('div', {
+            key: chapter.group,
+            id: 'endfield-panel-' + chapter.id,
+            role: 'tabpanel',
+            'aria-labelledby': 'endfield-tab-' + chapter.id,
+            style: { display: chapter.id === activeChapterId ? 'block' : 'none' },
+          }, children)
           return R.createElement('div', { className: 'endfield-settings', style: pageStyle }, [
+            chapterSelector,
             /* --- 01 主题：总开关在最前，随后是配色与圆角 --- */
-            R.createElement('div', { key: 'group-theme' }, [
-              groupTitle('01', 'groupTheme', true),
+            chapterPanel(SETTINGS_CHAPTERS[0], [
+              groupTitle('01', 'groupTheme'),
               row('theme', false, [
                 R.createElement('span', { style: labelStyle }, t('themeRow') + t('sep') + stateOf(enabled)),
                 R.createElement('button', { type: 'button', onClick: toggleTheme, style: btnStyleFor(enabled) }, t(enabled ? 'themeOff' : 'themeOn'))
@@ -6788,8 +7022,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
               ]),
             ]),
             /* --- 02 背景：等高线 + 水印，各自的主开关在前、附属开关在后 --- */
-            R.createElement('div', { key: 'group-bg' }, [
-              groupTitle('02', 'groupBg', false),
+            chapterPanel(SETTINGS_CHAPTERS[1], [
+              groupTitle('02', 'groupBg'),
               row('contour', false, [
                 R.createElement('span', { style: labelStyle },
                   t('contourRow') + t('sep') + stateOf(contourOn),
@@ -6970,8 +7204,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
               ]),
             ]),
             /* --- 03 动画：启动加载动画 --- */
-            R.createElement('div', { key: 'group-anim' }, [
-              groupTitle('03', 'groupAnim', false),
+            chapterPanel(SETTINGS_CHAPTERS[2], [
+              groupTitle('03', 'groupAnim'),
               row('loader', true, [
                 R.createElement('span', { style: labelStyle },
                   t('loaderRow') + t('sep') + stateOf(loaderOn),
@@ -6997,8 +7231,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
               ]),
             ]),
             /* --- 04 娱乐：雷霆大字（主开关 + 入场动画子开关） --- */
-            R.createElement('div', { key: 'group-fun' }, [
-              groupTitle('04', 'groupFun', false),
+            chapterPanel(SETTINGS_CHAPTERS[3], [
+              groupTitle('04', 'groupFun'),
               row('thunder', false, [
                 R.createElement('span', { style: labelStyle },
                   t('thunderRow') + t('sep') + stateOf(thunderOn),
@@ -7040,12 +7274,15 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                 }, t(thunderAnim ? 'thunderAnimOff' : 'thunderAnimOn'))
               ]),
             ]),
-            /* --- 05 音频：两个生效槽位 + 两个预留槽位 ---
+            /* --- 05 音频：总开关 → 音量 → 各槽位 → 少用项 ---
                Every row states WHEN it fires, because that is the whole contract
-               of this feature; the two reserved rows say outright that they will
-               not fire yet, so a switch that does nothing cannot read as broken. */
-            R.createElement('div', { key: 'group-audio' }, [
-              groupTitle('05', 'groupAudio', false),
+               of this feature; the reserved row says outright that nothing is wired
+               to it yet, so a switch that does nothing cannot read as broken.
+               音量 sits directly under the master switch (it is the second thing
+               anyone reaches for), and the two rows almost nobody touches —
+               启动加载动画音 and 诊断日志 — close the chapter. */
+            chapterPanel(SETTINGS_CHAPTERS[4], [
+              groupTitle('05', 'groupAudio'),
               row('audio', false, [
                 R.createElement('span', { style: labelStyle },
                   t('audioRow') + t('sep') + stateOf(audioOn),
@@ -7055,26 +7292,22 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                 ),
                 R.createElement('button', { type: 'button', onClick: toggleAudio, style: btnStyleFor(audioOn) }, t(audioOn ? 'audioOff' : 'audioOn'))
               ]),
-              /* The boot row pairs two independent switches stacked on the right:
-                 the sound's own on/off, and the loader's preview button. They are
-                 separate switches because the loader can be on with no sound. */
-              row('audio-boot', false, [
+              row('audio-volume', false, [
                 R.createElement('span', { style: labelStyle },
-                  t('audioBootRow') + t('sep') + stateOf(audioBoot),
-                  R.createElement('span', { style: hintStyle }, t('audioBootHint'))
+                  t('audioVolumeRow') + t('sep') + String(audioVolume) + '%',
+                  R.createElement('span', { style: hintStyle }, t('audioVolumeHint'))
                 ),
-                R.createElement('span', { style: { display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto', alignItems: 'stretch' } },
-                  R.createElement('button', {
-                    type: 'button', onClick: replayLoader,
-                    style: btnStyleFor(false, !loaderOn || !enabled),
-                    disabled: !loaderOn || !enabled,
-                    title: loaderOn ? '' : t('loaderNeed'),
-                  }, t('preview') + ' · ' + t('loaderRow')),
-                  R.createElement('button', {
-                    type: 'button', onClick: toggleAudioBoot,
-                    style: btnStyleFor(audioBoot, !audioOn), disabled: !audioOn,
-                    title: audioOn ? '' : t('audioNeedOn'),
-                  }, t(audioBoot ? 'audioBootOff' : 'audioBootOn'))
+                R.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' } },
+                  R.createElement('input', {
+                    type: 'range', min: 0, max: 100, step: 5,
+                    'aria-label': t('audioVolumeRow'),
+                    value: audioVolume,
+                    disabled: !audioOn,
+                    onChange: (event) => setAudioVolumeValue(Number(event.target.value)),
+                    onMouseUp: () => { previewSlot('turn-done').then(showPreviewNote) },
+                    style: { width: '140px', accentColor: enabled ? 'var(--edge-accent)' : undefined },
+                  }),
+                  R.createElement('span', { style: { ...labelStyle, minWidth: '38px', textAlign: 'right' } }, String(audioVolume) + '%')
                 )
               ]),
               row('audio-start', false, [
@@ -7105,67 +7338,32 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                   }, t(audioDone ? 'audioDoneOff' : 'audioDoneOn'))
                 )
               ]),
-              row('audio-volume', false, [
-                R.createElement('span', { style: labelStyle },
-                  t('audioVolumeRow') + t('sep') + String(audioVolume) + '%',
-                  R.createElement('span', { style: hintStyle }, t('audioVolumeHint'))
-                ),
-                R.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' } },
-                  R.createElement('input', {
-                    type: 'range', min: 0, max: 100, step: 5,
-                    'aria-label': t('audioVolumeRow'),
-                    value: audioVolume,
-                    disabled: !audioOn,
-                    onChange: (event) => setAudioVolumeValue(Number(event.target.value)),
-                    onMouseUp: () => { previewSlot('turn-done').then(showPreviewNote) },
-                    style: { width: '140px', accentColor: enabled ? 'var(--edge-accent)' : undefined },
-                  }),
-                  R.createElement('span', { style: { ...labelStyle, minWidth: '38px', textAlign: 'right' } }, String(audioVolume) + '%')
-                )
-              ]),
               row('audio-attention', false, [
                 R.createElement('span', { style: labelStyle },
-                  t('audioAttentionRow') + t('sep') + stateOf(audioTestReady()),
-                  R.createElement('span', { style: hintStyle }, t('audioReservedHint'))
+                  t('audioAttentionRow') + t('sep') + stateOf(audioAttention),
+                  R.createElement('span', { style: hintStyle }, t('audioAttentionHint'))
                 ),
                 R.createElement('span', { style: { display: 'flex', gap: '8px', flex: '0 0 auto' } },
-                  audioTestButton('attention', 'audioSlotAttention')
+                  audioTestButton('attention', 'audioSlotAttention'),
+                  R.createElement('button', {
+                    type: 'button', onClick: toggleAudioAttention,
+                    style: btnStyleFor(audioAttention, !audioOn), disabled: !audioOn,
+                    title: audioOn ? '' : t('audioNeedOn'),
+                  }, t(audioAttention ? 'audioAttentionOff' : 'audioAttentionOn'))
                 )
               ]),
               row('audio-fail', false, [
                 R.createElement('span', { style: labelStyle },
-                  t('audioTurnFailRow') + t('sep') + stateOf(audioTestReady()),
-                  R.createElement('span', { style: hintStyle }, t('audioReservedHint'))
+                  t('audioTurnFailRow') + t('sep') + stateOf(audioTurnFail),
+                  R.createElement('span', { style: hintStyle }, t('audioTurnFailHint'))
                 ),
                 R.createElement('span', { style: { display: 'flex', gap: '8px', flex: '0 0 auto' } },
-                  audioTestButton('turn-fail', 'audioSlotFail')
-                )
-              ]),
-              row('audio-source', false, [
-                R.createElement('span', { style: labelStyle },
-                  t('audioFileRow') + t('sep') + sourceSummary(),
-                  R.createElement('span', { style: hintStyle, wordBreak: 'break-all' }, sourceDetail())
-                ),
-                R.createElement('button', {
-                  type: 'button', onClick: () => { setPreviewNote(''); refreshHostState() },
-                  style: btnStyleFor(false),
-                }, t('audioRefresh'))
-              ]),
-              row('audio-dir', false, [
-                R.createElement('span', { style: labelStyle },
-                  t('audioSoundDirRow') + t('sep') + (readAudioSoundDir() || t('audioSoundDirDefault')),
-                  R.createElement('span', { style: hintStyle }, t('audioSoundDirHint'))
-                ),
-                R.createElement('span', { style: { display: 'flex', gap: '8px', flex: '0 0 auto' } },
-                  R.createElement('input', {
-                    type: 'text',
-                    'aria-label': t('audioSoundDirRow'),
-                    defaultValue: readAudioSoundDir(),
-                    placeholder: t('audioSoundDirDefault'),
-                    onKeyDown: (event) => { if (event.key === 'Enter') applySoundDir(event.target.value) },
-                    onBlur: (event) => applySoundDir(event.target.value),
-                    style: { width: '200px', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 8px', fontSize: '12px' },
-                  })
+                  audioTestButton('turn-fail', 'audioSlotFail'),
+                  R.createElement('button', {
+                    type: 'button', onClick: toggleAudioTurnFail,
+                    style: btnStyleFor(audioTurnFail, !audioOn), disabled: !audioOn,
+                    title: audioOn ? '' : t('audioNeedOn'),
+                  }, t(audioTurnFail ? 'audioTurnFailOff' : 'audioTurnFailOn'))
                 )
               ]),
               row('audio-human', false, [
@@ -7180,6 +7378,30 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                   style: btnStyleFor(audioHumanOnly, !audioOn), disabled: !audioOn,
                   title: audioOn ? '' : t('audioNeedOn'),
                 }, t(audioHumanOnly ? 'audioHumanOnlyOff' : 'audioHumanOnlyOn'))
+              ]),
+              /* The boot row closes the audible rows because it is the one nobody
+                 reaches for: it rings only while the ENDFIELD boot plate plays.
+                 It pairs two independent switches stacked on the right — the
+                 sound's own on/off and the loader's preview button — because the
+                 loader can be on with no sound. */
+              row('audio-boot', false, [
+                R.createElement('span', { style: labelStyle },
+                  t('audioBootRow') + t('sep') + stateOf(audioBoot),
+                  R.createElement('span', { style: hintStyle }, t('audioBootHint'))
+                ),
+                R.createElement('span', { style: { display: 'flex', flexDirection: 'column', gap: '6px', flex: '0 0 auto', alignItems: 'stretch' } },
+                  R.createElement('button', {
+                    type: 'button', onClick: replayLoader,
+                    style: btnStyleFor(false, !loaderOn || !enabled),
+                    disabled: !loaderOn || !enabled,
+                    title: loaderOn ? '' : t('loaderNeed'),
+                  }, t('preview') + ' · ' + t('loaderRow')),
+                  R.createElement('button', {
+                    type: 'button', onClick: toggleAudioBoot,
+                    style: btnStyleFor(audioBoot, !audioOn), disabled: !audioOn,
+                    title: audioOn ? '' : t('audioNeedOn'),
+                  }, t(audioBoot ? 'audioBootOff' : 'audioBootOn'))
+                )
               ]),
               row('audio-diag', true, [
                 R.createElement('span', { style: labelStyle },
@@ -7241,6 +7463,10 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       // keeps POSTing against a dead run.
       stopAudioAttentionWatch()
       disposeSettings()
+      /* Hand the app's scroll container back exactly as it was found: the reserved
+         scrollbar gutter is an inline style this theme added, and it must not
+         outlive the theme. */
+      releaseSettingsScrollbar()
     })
   }
 

@@ -269,6 +269,28 @@ for (const [key, expect] of CHECKS) {
   if (enText.includes(expect)) pass('en 行文案生效：' + key + ' → ' + expect)
   else fail('en render is missing the copy for ' + key + ' (expected "' + expect + '")')
 }
+/* The chapter selector follows the language too, through its OWN short labels:
+   reusing the group headers' strings would put "04 ENTERTAINMENT" in a fifth of
+   the panel — and would trip the duplicate-latin check just below, which is what
+   pins the two dictionaries apart.
+
+   Read from the STRIP itself (its key is 'tabs'), not from the page text: a bare
+   `includes('Theme')` would also be satisfied by the row copy, and the point here
+   is the segments. The exact string also pins the requested shape — labels with
+   NO chapter number ("01 主题" → "主题"). */
+const stripTextIn = (lang) => {
+  locale.setActive(lang)
+  const strip = walk(m1.rendered()).find((n) => n.type === 'div' && n.props && n.props.key === 'tabs')
+  return strip ? textOf(strip) : ''
+}
+const stripZh = stripTextIn('zh')
+const stripEn = stripTextIn('en')
+if (stripZh === '主题背景动画娱乐音频') pass('zh 选择条短标签：主题 / 背景 / 动画 / 娱乐 / 音频')
+else fail('zh 选择条文本为 ' + JSON.stringify(stripZh))
+if (stripEn === 'ThemeBackgroundAnimationExtrasAudio') pass('en 选择条短标签：Theme / Background / Animation / Extras / Audio')
+else fail('en 选择条文本为 ' + JSON.stringify(stripEn))
+if (!/[0-9]/.test(stripZh) && !/[0-9]/.test(stripEn)) pass('选择条标签不带章节编号')
+else fail('选择条标签里出现了编号：' + JSON.stringify([stripZh, stripEn]))
 // And the group headers must not print the latin line twice under English.
 const dupEn = (enText.match(/ENTERTAINMENT/g) || []).length
 if (dupEn === 1) pass('en 下分组标题不重复打印拉丁行')

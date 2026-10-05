@@ -148,9 +148,9 @@ pass('settings panel rendered without throwing')
 
 const nodes = walk(tree)
 const buttons = nodes.filter((n) => n.type === 'button')
-/* The rows live inside four group containers (主题 / 背景 / 动画 / 娱乐), so "all
-   rows" means every div whose key is one of the sixteen switch rows, wherever
-   it sits in the tree.
+/* The rows live inside five group containers (主题 / 背景 / 动画 / 娱乐 / 音频), so
+   "all rows" means every div whose key is one of the registered switch rows,
+   wherever it sits in the tree.
 
    ROW_KEYS is BOTH the expected set and the counter, so a new row that is not
    listed here is silently ignored rather than counted — which is exactly what
@@ -158,15 +158,21 @@ const buttons = nodes.filter((n) => n.type === 'button')
    passed while a tenth row was on screen). The independent total below is what
    makes that impossible now. */
 /* The row set is the union of both lines of work: main's glass / contour-trail /
-   contour-renderer rows (16) plus this branch's 11 audio rows. The count is
+   contour-renderer rows (19) plus this branch's 9 audio rows. The count is
    asserted below against the rendered tree as well, so a row that exists in the
-   page but not in this list still fails. */
-const ROW_KEYS = ['theme', 'palette', 'glass', 'radius', 'contour', 'contour-anim', 'contour-trail', 'contour-renderer', 'contour-fps', 'contour-speed', 'contour-scroll-pause', 'bokeh', 'bokeh-wash', 'watermark', 'watermark-persist', 'composer-glow', 'loader', 'thunder', 'thunder-anim', 'audio', 'audio-boot', 'audio-start', 'audio-done', 'audio-volume', 'audio-attention', 'audio-fail', 'audio-source', 'audio-dir', 'audio-human', 'audio-diag']
+   page but not in this list still fails.
+
+   The audio chapter's list is in RENDER order, which is also the contract the
+   settings page was asked to keep: 总开关 → 音量 → 四个槽位 → 开始音仅认会话框
+   → 启动加载动画音 → 诊断日志. 当前音源 and 自定义音效目录 are deliberately gone
+   (custom sound sources are not supported yet), so they must not come back here
+   without the rows themselves coming back. */
+const ROW_KEYS = ['theme', 'palette', 'glass', 'radius', 'contour', 'contour-anim', 'contour-trail', 'contour-renderer', 'contour-fps', 'contour-speed', 'contour-scroll-pause', 'bokeh', 'bokeh-wash', 'watermark', 'watermark-persist', 'composer-glow', 'loader', 'thunder', 'thunder-anim', 'audio', 'audio-volume', 'audio-start', 'audio-done', 'audio-attention', 'audio-fail', 'audio-human', 'audio-boot', 'audio-diag']
 const rows = nodes.filter((n) => n.type === 'div' && n.props && ROW_KEYS.includes(n.props.key))
 const groups = (tree.children || []).filter((c) => c && c.type === 'div' && c.props && /^group-/.test(c.props.key))
 
-if (rows.length === 30) pass('panel has all 30 setting rows')
-else fail('expected 30 rows, found ' + rows.length)
+if (rows.length === 28) pass('panel has all 28 setting rows')
+else fail('expected 28 rows, found ' + rows.length)
 
 /* Count the rows the way the PAGE defines them — every direct child of a group
    container — so an unlisted new row shows up as a mismatch instead of vanishing. */
@@ -201,6 +207,113 @@ for (const [label, title] of [['01 主题', 'THEME'], ['02 背景', 'BACKGROUND'
 }
 if (src.includes('.endfield-settings-group-title')) pass('group-title stylesheet rule is defined')
 else fail('client.js never defines .endfield-settings-group-title — headers will use default text colour')
+
+/* The chapter header's latin line is BOTTOM-aligned against the CJK name, not
+   centred with it. The row itself stays centred, so without `alignSelf` the small
+   caps line floats in the middle of the big line box (that is what was reported);
+   the alignment lives on that one span, and the decorative mark must NOT get it —
+   it is a bar, not text, and keeps the row's centring. */
+const title01 = walk(tree).find((n) => n.type === 'div' && n.props && n.props.key === 'group-title-01')
+const titleParts = title01 ? (title01.children || []) : []
+const latinPart = titleParts.length > 2 ? titleParts[2] : null
+if (title01 && title01.props.style.alignItems === 'center') pass('章标题行容器仍为中线对齐')
+else fail('the chapter header row is not centred: ' + JSON.stringify(title01 ? title01.props.style : null))
+if (latinPart && latinPart.props.style.alignSelf === 'flex-end') pass('英文行底对齐（alignSelf: flex-end）')
+else fail('the latin line is not bottom-aligned: ' + JSON.stringify(latinPart ? latinPart.props.style : null))
+if (titleParts.length > 0 && titleParts[0].props.style.alignSelf === undefined) pass('强调竖条保持中线对齐')
+else fail('the accent mark should keep the row centring, not follow the latin line')
+/* ...and the latin line is SMALLER than the name it sits on. Asserted as a
+   relation (not as two literals): the exact step is a design knob, but "the
+   second line must not compete with the first" is the invariant. */
+const nameSize = parseFloat(titleParts[1] ? titleParts[1].props.style.fontSize : '0')
+const latinSize = parseFloat(latinPart ? latinPart.props.style.fontSize : '0')
+if (latinSize > 0 && latinSize < nameSize) pass('英文行比中文名小一号（' + latinSize + 'px < ' + nameSize + 'px）')
+else fail('the latin line is not smaller than the name: latin=' + latinSize + ' name=' + nameSize)
+
+/* --- the chapter selector (滑动槽): one strip at the top, five chapters, one
+   visible at a time. Asserted on the rendered tree, and the strip is addressed by
+   its OWN key: a key starting with `group-` would be counted as a sixth chapter
+   by the checks above, which is exactly the kind of drift this catches. --- */
+const tablist = (tree.children || []).find((c) => c && c.type === 'div' && c.props && c.props.key === 'tabs')
+if (tablist && tablist.props.role === 'tablist') pass('章节选择条渲染在页面顶部（role=tablist）')
+else fail('the chapter selector strip is missing from the top of the panel')
+const tabButtons = tablist ? walk(tablist).filter((n) => n.type === 'button') : []
+if (tabButtons.length === 5) pass('选择条有 5 个章节段')
+else fail('expected 5 chapter segments, found ' + tabButtons.length)
+const tabLabels = tabButtons.map((b) => textOf(b))
+if (tabLabels.join('|') === '主题|背景|动画|娱乐|音频') pass('段标签按章节顺序排列、不带编号：' + tabLabels.join(' / '))
+else fail('chapter segments read ' + JSON.stringify(tabLabels))
+if (tabButtons.every((b) => b.props.role === 'tab' && typeof b.props.onClick === 'function')) pass('每段都是 role=tab 且可点击')
+else fail('a chapter segment is not a clickable role=tab')
+const selectedTabs = tabButtons.filter((b) => b.props['aria-selected'] === 'true')
+if (selectedTabs.length === 1 && textOf(selectedTabs[0]) === '主题') pass('默认选中第一章（主题）')
+else fail('expected exactly one selected segment (主题), got ' + JSON.stringify(selectedTabs.map(textOf)))
+const panels = groups.filter((g) => g.props.role === 'tabpanel')
+const visiblePanels = panels.filter((g) => !g.props.style || g.props.style.display !== 'none')
+if (panels.length === 5 && visiblePanels.length === 1 && visiblePanels[0].props.key === 'group-theme') {
+  pass('只有选中的章节可见，其余 display:none')
+} else {
+  fail('expected exactly the theme chapter visible, got ' + JSON.stringify(visiblePanels.map((g) => g.props.key)))
+}
+if (selectedTabs.length === 1 && visiblePanels.length === 1
+  && selectedTabs[0].props['aria-controls'] === visiblePanels[0].props.id
+  && visiblePanels[0].props['aria-labelledby'] === selectedTabs[0].props.id) {
+  pass('tab 与 panel 的 aria 关系互指')
+} else {
+  fail('the selected tab and its panel do not reference each other')
+}
+if (tabButtons.length === 5 && tabButtons[0].props.tabIndex === 0
+  && tabButtons.slice(1).every((b) => b.props.tabIndex === -1)) {
+  pass('roving tabindex：只有选中的段在 Tab 顺序里')
+} else {
+  fail('roving tabindex is not applied to the chapter segments')
+}
+/* The chapter NUMBER left the segment but stays in the tooltip (and in the
+   chapter's own header), so the editorial numbering is still discoverable. */
+if (tabButtons.length === 5 && tabButtons.map((b) => b.props.title).join('|') === '01 主题|02 背景|03 动画|04 娱乐|05 音频') {
+  pass('每段带「编号 + 章节名」tooltip：' + tabButtons.map((b) => b.props.title).join(' / '))
+} else {
+  fail('chapter tooltips read ' + JSON.stringify(tabButtons.map((b) => b.props.title)))
+}
+
+/* --- switching chapters: click a segment, re-render, and the page follows --- */
+const bgTab = tabButtons[1]
+if (bgTab && typeof bgTab.props.onClick === 'function') {
+  try { bgTab.props.onClick() } catch (e) { fail('chapter segment onClick threw: ' + e.message) }
+  const treeSwitch = rendered()
+  const panels2 = walk(treeSwitch).filter((n) => n.type === 'div' && n.props && n.props.role === 'tabpanel')
+  const visible2 = panels2.filter((g) => !g.props.style || g.props.style.display !== 'none')
+  if (visible2.length === 1 && visible2[0].props.key === 'group-bg') pass('点击「背景」后只显示背景章节')
+  else fail('clicking the 背景 segment showed ' + JSON.stringify(visible2.map((g) => g.props.key)))
+  const tabs2 = walk(treeSwitch).filter((n) => n.type === 'button' && n.props && n.props.role === 'tab')
+  const selected2 = tabs2.filter((b) => b.props['aria-selected'] === 'true')
+  if (selected2.length === 1 && textOf(selected2[0]) === '背景') pass('选择条跟随选中状态（背景 高亮）')
+  else fail('the strip did not follow the selection: ' + JSON.stringify(selected2.map(textOf)))
+  /* The sliding thumb is the visible half of the control, so its offset is
+     asserted too: segment 2 of 5 must sit one own-width to the right. */
+  const thumb = walk(treeSwitch).find((n) => n.type === 'span' && n.props
+    && n.props['aria-hidden'] === 'true' && String((n.props.style || {}).transform || '').indexOf('translateX') === 0)
+  if (thumb && thumb.props.style.transform === 'translateX(100%)') pass('滑动块跟随选中段位移（translateX(100%)）')
+  else fail('the sliding thumb did not move: ' + JSON.stringify(thumb ? thumb.props.style.transform : null))
+
+  /* --- keyboard: a tablist is expected to move on the arrow keys --- */
+  const prevented = []
+  const bgTab2 = tabs2.find((b) => textOf(b) === '背景')
+  try {
+    bgTab2.props.onKeyDown({ key: 'ArrowRight', preventDefault: () => prevented.push('x') })
+  } catch (e) { fail('chapter keydown threw: ' + e.message) }
+  const treeKey = rendered()
+  const selected3 = walk(treeKey).filter((n) => n.type === 'button' && n.props && n.props.role === 'tab'
+    && n.props['aria-selected'] === 'true')
+  if (selected3.length === 1 && textOf(selected3[0]) === '动画') pass('方向键在章节间移动选择（→ 到 动画）')
+  else fail('ArrowRight did not move the selection: ' + JSON.stringify(selected3.map(textOf)))
+  if (prevented.length === 1) pass('方向键按下时阻止页面滚动（preventDefault）')
+  else fail('the arrow-key handler did not call preventDefault')
+  /* Back to the first chapter: every assertion below reads the page as it opens. */
+  const themeTab3 = walk(treeKey).filter((n) => n.type === 'button' && n.props && n.props.role === 'tab')
+    .find((b) => textOf(b) === '主题')
+  try { themeTab3.props.onClick() } catch (e) { fail('restoring the first chapter threw: ' + e.message) }
+} else fail('no clickable chapter segment rendered')
 /* Rows that must exist. 光点移动 is deliberately NOT in this list: it is described
    in the README and was asserted here, but it has never existed in client.js (git
    log -S finds no commit adding it), so the assertion tested the test rather than
