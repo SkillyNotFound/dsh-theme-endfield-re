@@ -63,12 +63,17 @@ dsh plugin --profile web rm dsh-theme-endfield-re
 ## 开发
 
 ```bash
-node check.js     # 样式表静态校验
-node selftest.js  # 校验器自检
-npm test          # 完整测试套件
+node check.js       # 样式表静态校验
+node selftest.js    # 校验器自检
+npm test            # 完整测试套件
+
+npm run deploy:check  # 运行中的 profile 与本仓库差了多少（不写入）
+npm run deploy        # 把工作副本部署进 profile；之后需完全重启 DSH
 ```
 
 测试覆盖样式不变量、配色、设置页、浏览器渲染、等高线几何与性能预算。部分用例需要本机安装 Chrome 或 Edge。
+
+完整的迭代闭环、CI 各 job 的职责，以及几处会影响流程的环境事实（桌面 profile 只能由应用管理、宿主会快照 `client.js`），见 [docs/development.md](docs/development.md)。
 
 ## 归属与许可
 

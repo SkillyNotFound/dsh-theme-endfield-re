@@ -12,8 +12,13 @@
  */
 'use strict'
 const fs = require('fs')
+const path = require('path')
 
-const PLUGIN = 'dsh-theme-endfield'
+/* The row the patch must carry is THIS package's name, read from the manifest rather than
+   written down here. This repo is a fork of dsh-theme-endfield, and a hardcoded upstream
+   name is exactly what made every push after the rename fail this step — while the test
+   suite itself stayed green, so the failure looked like a code problem and was not. */
+const PLUGIN = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')).name
 const SOURCE = 'cordis.patch.yml'
 const esc = (s) => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
 
