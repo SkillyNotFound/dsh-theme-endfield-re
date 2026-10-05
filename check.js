@@ -309,6 +309,27 @@ if (registeredId === undefined) {
   fail('client.js registers as "' + registeredId + '" but the package is "' + pkgName + '" — the host looks the bundle up by the registered id')
 }
 
+/* --- 6. no manifest or bundle may start with a UTF-8 BOM ---
+   Windows PowerShell's `-Encoding utf8` writes one, and a BOM makes JSON.parse throw on
+   package.json. Every reader of the manifest then fails — this checker (as "no readable
+   name", naming neither the BOM nor the file), tools/deploy.mjs, and the host itself —
+   while the file looks perfectly normal in an editor. Cheap to assert, and it was hit. */
+/* No `Buffer` here: selftest.js runs this file inside a restricted vm context where the
+   Buffer global is absent, and reading the bytes and comparing them by index needs nothing
+   from the global. */
+const hasBom = (p) => {
+  try {
+    const b = fs.readFileSync(p)
+    return b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf
+  } catch { return false }
+}
+const bomFiles = [path.join(__dirname, 'package.json'), file].filter(hasBom)
+if (bomFiles.length === 0) {
+  pass('no UTF-8 BOM in package.json or the bundle')
+} else {
+  fail('UTF-8 BOM at the start of: ' + bomFiles.map((p) => path.relative(__dirname, p) || p).join(', ') + ' — JSON.parse will throw on the manifest')
+}
+
 console.log('')
 if (failures) {
   console.error(`${failures} check(s) failed`)
