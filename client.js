@@ -4539,27 +4539,23 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         --dsw-elevation-stroke-color: var(--edge-glass-edge);
       }
-      /* The sidebar column and the Windows titlebar band, as two parts of ONE surface.
+      /* The sidebar column takes the frost AND the glow, on itself. The Windows titlebar
+         band gets only its hairline, and that is a hard constraint rather than a
+         preference:
 
-         They are two different boxes -- '.BynINW_sidebarCol' (the grid's first column)
-         and the frame's own '::before' band that the host lays across the top with
-         height:var(--dsh-windows-titlebar-height) -- but the host paints both with
-         background:var(--dsw-specific-sidebar-fill), and it sets the sidebar's
-         border-right to none on Windows. So they are the same panel material, and they
-         get the same fill, the same blur and the same hairline.
-
-         The hairline is on the titlebar band because that is the edge the two do not
-         share: inset 0 -1px 0 draws along its BOTTOM, which continues the sidebar's
-         right edge as one continuous boundary around the corner. The old
-         [data-slot='sidebar'] rule matched nothing at all -- no shipped bundle emits
-         that slot id -- so the sidebar had no tint and no boundary before this. */
-      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
-      body[data-endfield-glass] [class*='_frame']::before {
+         the caption buttons (minimise / maximise / close) are an Electron
+         titleBarOverlay flag, i.e. NATIVE, and their fill is not painted by CSS. The desktop
+         preload measures a hidden probe reading --dsw-specific-sidebar-fill and sends
+         that colour to the main process over dsh-desktop:windows-appearance; the shell
+         then fills the caption area with it. The host paints the band with that same
+         token, so band and caption agree by construction -- and ANY tint this stylesheet
+         puts on the band breaks that agreement, leaving the native buttons on a colour
+         nothing else in the window uses. A theme cannot recolour them, so the band keeps
+         the host's own fill and the frost stops at the sidebar. */
+      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
         background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha)) !important;
         -webkit-backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
-      }
-      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
         box-shadow: inset -1px 0 0 var(--edge-glass-edge);
       }
       /* html[...], NOT body[...]: the host puts data-windows-titlebar on the ROOT element
@@ -4569,34 +4565,29 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
         box-shadow: inset 0 -1px 0 var(--edge-glass-edge);
       }
-      /* ---------- the shared accent glow ----------------------------------------------
-         The specular sheen and the accent bloom, as ONE continuous L across the corner,
-         not one copy per surface.
+      /* ---------- the accent glow ------------------------------------------------------
+         The specular sheen and the accent bloom, carried by the sidebar itself.
 
-         It cannot be the surfaces' own background-image: two elements can only ever
-         paint two separate gradients, and a corner would show two hard seams. So the
-         135deg sheen lives on a single overlay that spans the whole L at once -- from
-         the frame's left edge down to the sidebar's bottom, and across the titlebar --
-         which is exactly what makes the gradient run unbroken from the sidebar up and
-         around into the band.
+         It used to be one L-shaped overlay on the frame's ::after, spanning the sidebar
+         AND the titlebar band. That overlay is gone, for a concrete reason: a positioned
+         pseudo with a non-auto z-index paints over every in-flow descendant, and the two
+         things it covered were chrome this theme has no business touching --
 
-         ::after on the frame is the only free pseudo there (::before already carries
-         the host's titlebar band), and it is positioned at z-index 0 inside an
-         overflow:hidden frame, so it paints over both surfaces and under every
-         in-flow descendant. Gated on the contour layer being mounted, so with 等高线
-         off the frosted look is pure tint with no glow, keeping one source of truth
+           * .BynINW_toggle (the sidebar collapse control) is position:fixed with
+             z-index:30, i.e. it relies on the viewport as its containing block. ANY
+             ancestor that establishes a containing block for fixed descendants moves it,
+             and backdrop-filter is one of those properties. The overlay was not an
+             ancestor of it, but the shape was one edit away from being one;
+           * the native caption buttons, which cannot be tinted at all (above).
+
+         On the sidebar the same two gradients are simply part of its own background, which
+         is where a surface's sheen belongs. Gated on the contour layer being mounted, so
+         with 等高线 off the frosted look is pure tint with no glow -- one source of truth
          for "is the sheet on". */
-      body[data-endfield-glass] [class*='_frame']:has(> [data-endfield-contour])::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        z-index: 0;
-        pointer-events: none;
-        width: var(--dsh-sidebar-width, 280px);
-        height: var(--dsh-frame-top-clearance, var(--dsh-windows-titlebar-height, 0px));
+      body[data-endfield-glass] [class*='_frame']:has(> [data-endfield-contour])
+        > [class$='_sidebarCol'] {
         background-image: linear-gradient(135deg, var(--edge-glass-sheen), transparent 62%),
-          radial-gradient(ellipse at 0% 100%, color-mix(in srgb, var(--edge-accent) 9%, transparent), transparent 72%);
+          radial-gradient(ellipse at 0% 100%, color-mix(in srgb, var(--edge-accent) 9%, transparent), transparent 72%) !important;
       }
       @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
         /* No backdrop filter: the tint has to carry the whole material, so use a nearly
@@ -4604,8 +4595,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
           [data-dockkit-host='dock'] > [class*='_tabHost'],
-        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
-        body[data-endfield-glass] [class*='_frame']::before {
+        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
           background-color: rgb(var(--edge-glass-fill) / .96) !important;
         }
       }
@@ -4613,8 +4603,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
           [data-dockkit-host='dock'] > [class*='_tabHost'],
-        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
-        body[data-endfield-glass] [class*='_frame']::before {
+        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
           background-color: rgb(var(--edge-glass-fill)) !important;
           -webkit-backdrop-filter: none; backdrop-filter: none;
         }

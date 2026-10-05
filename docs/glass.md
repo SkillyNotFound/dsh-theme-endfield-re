@@ -15,36 +15,67 @@ erased it.
 is a dependent control: with 磨砂玻璃 off there is no frost to defocus, so it
 disables rather than editing a value nothing reads.
 
-Four surfaces carry it, all with one shared fill so none can drift away from the
+Three surfaces carry it, with one shared fill each so none can drift away from the
 others:
 
-| surface | element | edge it gets |
+| surface | element | notes |
 | --- | --- | --- |
-| composer card | `[data-composer-card]` | — (it has its own border) |
-| left sidebar | `[class*='_frame'] > [class*='_sidebarCol']` | 1 px along its **right** edge |
-| app titlebar band (Windows) | `[class*='_frame']::before` | 1 px along its **bottom** edge |
+| composer card | `[data-composer-card]` | has its own border |
+| left sidebar | `[class*='_frame'] > [class*='_sidebarCol']` | also carries the glow; 1 px along its **right** edge |
 | docked right panel | `[data-dockkit-host='dock'] > [class*='_tabHost']` | — |
-
-The sidebar and the titlebar band are the same panel material (`--dsw-specific-sidebar-fill`
-in both), and their two edges meet at the corner, so together they read as one panel
-wrapping the interface. Both edges are needed: on Windows the host sets the sidebar's
-`border-right` to `none`, and the titlebar band has no border at all, so without
-these the frosted area would have no boundary where it meets the conversation
-column.
 
 Fullscreen panel shells, dialogs, code blocks and menus are excluded.
 
-## One glow, not one per surface
+## The Windows titlebar band is deliberately NOT frosted
 
-The specular sheen and the accent bloom are a **single** overlay —
-`[class*='_frame']::after`, spanning `--dsh-sidebar-width` ×
-`--dsh-frame-top-clearance` — rather than a `background-image` on each surface.
+This is a hard constraint, not an omission. The caption buttons (minimise /
+maximise / close) are an Electron `titleBarOverlay`: **native**, and their fill is
+not painted by CSS. The desktop preload measures a hidden probe whose
+`background-color` is `var(--dsw-specific-sidebar-fill)` and sends the result to
+the main process over `dsh-desktop:windows-appearance`; the shell then fills the
+caption area with it. The host paints the band with that same token, so band and
+caption agree **by construction**.
 
-That is deliberate: two elements can only ever paint two separate gradients, so a
-corner would show two hard seams and the "glow" would read as two stacked copies.
-One overlay spanning the whole L lets the 135° sheen run unbroken from the sidebar
-up and around into the titlebar band. The overlay is gated on the contour layer
-being mounted, so with 等高线 off the frosted look is pure tint with no glow.
+Any tint this stylesheet puts on the band breaks that agreement, leaving the native
+buttons sitting on a colour nothing else in the window uses — which is exactly the
+reported "the minimise/maximise/close buttons have a dead dark background". A theme
+cannot recolour them, because the colour is captured from a token the main process
+never re-reads from CSS in the frosted state. So the band keeps the host's own fill
+and the frost stops at the sidebar; the band still gets its hairline, as a static
+box-shadow.
+
+Measured on the real DOM, the probe's reading and the band's computed colour must be
+identical:
+
+| scheme | probe reports | band computes to |
+| --- | --- | --- |
+| dark | `rgb(16, 17, 16)` | `rgb(16, 17, 16)` |
+| light | `rgb(232, 232, 226)` | `rgb(232, 232, 226)` |
+
+`test/glass.test.js` asserts the band carries neither a fill nor a blur nor the glow,
+so this cannot silently regress.
+
+## The glow lives on the sidebar, not on an overlay
+
+The specular sheen and the accent bloom are part of the **sidebar column's own
+`background-image`** (two gradient layers), gated on the contour layer being
+mounted — so with 等高线 off the frosted look is pure tint with no glow.
+
+An earlier revision put them on a single L-shaped overlay (`[class*='_frame']::after`
+spanning `--dsh-sidebar-width` × `--dsh-frame-top-clearance`, covering sidebar and
+band together). That shape is gone, for two concrete reasons:
+
+- **A positioned pseudo with a non-auto `z-index` paints over every in-flow
+  descendant.** The sidebar column is `position: static`, so the overlay covered it
+  and the chrome inside it. `.BynINW_toggle` — the sidebar collapse control — is
+  `position: fixed; z-index: 30`, and it is a direct child of `body`, so an overlay
+  inside the frame happened not to move it; but the shape was one edit away from
+  being an ancestor of it, and the reported "the collapse button disappeared" is what
+  that class of mistake looks like.
+- **`backdrop-filter` establishes a containing block for fixed descendants.** Any
+  ancestor of the toggle that gains a blur, filter or transform moves a `fixed`
+  button that expects the viewport. The sidebar column is such an ancestor, so the
+  toggle's box is asserted unchanged with the frost on and off.
 
 ## Why the tint is light and the blur is small
 
@@ -136,8 +167,10 @@ Validation: `npm run test:glass` (Node 22+, Chrome/Edge; `CHROME_PATH` supported
 checks four light/dark × valley/Wuling combinations, each level's own opacity,
 every 磨砂模糊 tier on both the composer and the sidebar, stable geometry, AA text
 contrast on hovered/selected cells, reduced-transparency, fullscreen exclusion and
-teardown. It also pins the contracts above: every surface must carry the **same**
-fill, the sidebar and titlebar band must each keep their boundary line, the shell
-must stay transparent with no backdrop filter, and the glow must be one generated
-layer whose box spans the sidebar width and the titlebar height. The browser
-fixture uses isolated temporary profiles and no account or model requests.
+teardown. It also pins the contracts above: composer and sidebar carry the **same**
+fill, the sidebar keeps its boundary line and the glow, the Windows titlebar band
+takes **no** fill, blur or glow (its colour is reported to the native caption
+buttons), no glow overlay exists on the frame, the sidebar collapse control stays
+`position: fixed` at `z-index: 30` **and does not move** when the frost turns on, the
+panel shell stays transparent with no backdrop filter, and the fixture uses isolated
+temporary profiles and no account or model requests.

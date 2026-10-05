@@ -68,7 +68,7 @@ async function launch() {
 const HTML=`<!doctype html><html data-windows-titlebar><head><style>
 html,body{height:100%;margin:0}body{--dsw-alias-bg-base:#e8e8e2;--dsw-alias-bg-layer-1:#f2f2ec;
 --dsw-alias-label-primary:#101110;--dsw-alias-border-l1:#ccc;--dsw-alias-border-l2:#aaa;
---dsw-specific-sidebar-fill:#f0efe8;--dsh-windows-titlebar-height:36px;--dsh-sidebar-width:220px}
+--dsw-specific-sidebar-fill:#f0efe8;--dsh-windows-titlebar-height:40px;--dsh-sidebar-width:220px}
 body[data-ds-dark-theme]{--dsw-alias-bg-base:#101110;--dsw-alias-bg-layer-1:#181a17;--dsw-alias-label-primary:#f5f5f0;
 --dsw-specific-sidebar-fill:#191c19}
 /* Class names follow the shipped layout module: '<hash>_frame' / '<hash>_sidebarCol', i.e.
@@ -91,7 +91,15 @@ td{padding:12px}[data-composer-card]{position:absolute;bottom:30px;left:260px;wi
 /* DockLayout's surface, named the way the host really names it: export_hash_line, so
    the theme has to substring-match rather than suffix-match here. */
 ._tabHost_6nhg2_162{flex:1 1 auto;width:100%;height:100%;background:rgb(238,238,238)}
+/* The sidebar collapse control, exactly as the shipped ui-sidebar module declares it:
+   position:fixed + z-index:30 + its own top offset. Its containing block is the VIEWPORT,
+   so any theme rule that establishes one (a transform, filter or backdrop-filter on an
+   ancestor) silently moves the button off the titlebar. Kept here so glass.test.js can
+   assert it does not move. */
+._2H3hWW_toggle{position:fixed;left:12px;top:calc((var(--dsh-windows-titlebar-height) - 28px) / 2);
+  z-index:30;-webkit-app-region:no-drag;width:28px;height:28px}
 </style></head><body><div class="BynINW_frame"><div class="BynINW_sidebarCol" data-slot="sidebar"><div>Sidebar</div></div>
+<div class="_2H3hWW_toggle" data-endfield-collapse-toggle>collapse</div>
 <div class="BynINW_centerCol"><div class="wSkVaW_root"><table class="test_tableScroll"><tbody><tr><td id="cell">Selected text inside a hovered row</td></tr></tbody></table></div></div>
 <div data-composer-card>Composer</div>
 <div data-sidebar-right-panel="push" data-sidebar-right-open>

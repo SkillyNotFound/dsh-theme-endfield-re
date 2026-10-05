@@ -6,6 +6,8 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
   await boot(browser,path.resolve(__dirname,'..'))
   assert.equal(await browser.evaluate('document.body.hasAttribute("data-endfield-glass")'),false)
   const original=await browser.evaluate('JSON.stringify(document.querySelector("[data-composer-card]").getBoundingClientRect().toJSON())')
+  /* Captured with the frost OFF: the collapse control must not move once it is on. */
+  const collapseBefore=await browser.evaluate('JSON.stringify(document.querySelector("[data-endfield-collapse-toggle]").getBoundingClientRect().toJSON())')
   for(const dark of [false,true])for(const palette of ['valley','wuling']) {
     await browser.evaluate(`document.body.toggleAttribute('data-ds-dark-theme',${dark});__prefs.setItem('dsh-theme-endfield-palette',${JSON.stringify(palette)})`)
     /* The level moves OPACITY only; the radius is 磨砂模糊's job and so is constant here.
@@ -48,35 +50,46 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
     assert.notEqual(panel.pane.background,'rgba(0, 0, 0, 0)','the docked pane surface must carry the glass fill')
     assert.equal(panel.shell.filter,'none','the panel shell is a full-height overlay and must never be frosted')
     assert.equal(panel.shell.background,'rgba(0, 0, 0, 0)','the panel shell must stay transparent so the conversation column is not flattened')
-    /* ONE treatment across the composer, the sidebar column and the Windows titlebar band.
-       The sidebar/titlebar rule used to address [data-slot='sidebar'], which no shipped
-       bundle emits, so the sidebar silently got nothing at all. Asserting all three carry
-       the SAME fill and the SAME blur is what keeps them from drifting apart again. */
+    /* The sidebar column takes the frost AND the glow, on itself. It used to address
+       [data-slot='sidebar'], which no shipped bundle emits, so the sidebar silently got
+       nothing at all; a dedicated rule is what makes it carry the same fill as the
+       composer. The glow is part of its own background now, NOT an overlay: a positioned
+       pseudo with a non-auto z-index paints over in-flow descendants, and this frame
+       hosts chrome (.BynINW_toggle is position:fixed + z-index:30) that must not be
+       covered or have its fixed containing block broken by a backdrop-filter. */
     const surfaces=await browser.evaluate(`(()=>{
       const read=(e,pe)=>{const s=getComputedStyle(e,pe||null);return{
-        filter:s.backdropFilter||s.webkitBackdropFilter, background:s.backgroundColor, shadow:s.boxShadow}}
+        filter:s.backdropFilter||s.webkitBackdropFilter, background:s.backgroundColor,
+        image:s.backgroundImage, shadow:s.boxShadow, position:s.position}}
+      const side=document.querySelector('.BynINW_sidebarCol')
+      const frame=document.querySelector('.BynINW_frame')
       return {composer:read(document.querySelector('[data-composer-card]')),
-              sidebar:read(document.querySelector('.BynINW_sidebarCol')),
-              titlebar:read(document.querySelector('.BynINW_frame'),'::before'),
-              glow:read(document.querySelector('.BynINW_frame'),'::after')}
+              sidebar:read(side), sidePosition:getComputedStyle(side).position,
+              band:read(frame,'::before'), frameAfter:read(frame,'::after')}
     })()`)
     assert.match(surfaces.sidebar.filter,/blur\(4px\)/,'the sidebar column must carry the frost (the old [data-slot=sidebar] rule matched nothing)')
-    assert.match(surfaces.titlebar.filter,/blur\(4px\)/,'the Windows titlebar band must carry the frost')
     assert.equal(surfaces.sidebar.background,surfaces.composer.background,'sidebar and composer must share one fill')
-    assert.equal(surfaces.titlebar.background,surfaces.composer.background,'titlebar band and composer must share one fill')
     assert.match(surfaces.sidebar.shadow,/inset/,'the sidebar needs its right-edge boundary line (the host sets border-right:none on Windows)')
-    assert.match(surfaces.titlebar.shadow,/inset/,'the titlebar band needs its bottom boundary line')
-    /* ...and the sheen/accent is ONE layer covering both, not a copy each: an ::after on
-       the frame spanning the sidebar width and the titlebar height. */
-    assert.notEqual(surfaces.glow.background,undefined)
-    assert.match(await browser.evaluate(`getComputedStyle(document.querySelector('.BynINW_frame'),'::after').backgroundImage`),/gradient/,'the shared glow layer must paint the sheen')
-    const glowBox=await browser.evaluate(`(()=>{const s=getComputedStyle(document.querySelector('.BynINW_frame'),'::after');
-      const side=document.querySelector('.BynINW_sidebarCol').getBoundingClientRect();
-      const band=document.querySelector('.BynINW_frame').getBoundingClientRect();
-      return{w:s.width,h:s.height,content:s.content,sidebarW:side.width,bandTop:side.top,frameH:band.height}})()`)
-    assert.notEqual(glowBox.content,'none','the shared glow layer must be generated')
-    assert.equal(glowBox.w,Math.round(glowBox.sidebarW)+'px','the glow layer spans the sidebar width')
-    assert.equal(glowBox.h,Math.round(glowBox.bandTop)+'px','the glow layer spans the titlebar band height (one L, not two copies)')
+    assert.match(surfaces.sidebar.image,/gradient/,'the glow lives in the sidebar\'s own background, not on an overlay')
+    /* The titlebar band must keep the host's fill: the native caption buttons are filled
+       from a probe reading --dsw-specific-sidebar-fill, so tinting the band desyncs them. */
+    assert.equal(surfaces.band.filter,'none','the Windows titlebar band must never be frosted (its colour is reported to the native caption buttons)')
+    assert.equal(surfaces.band.image,'none','the band must not take the glow either')
+    assert.match(surfaces.band.shadow,/inset/,'the titlebar band keeps its bottom boundary line')
+    /* No overlay pseudo at all: that shape is what covered the collapse button. */
+    assert.equal(surfaces.frameAfter.image,'none','the frame must not paint a glow overlay (it would cover in-flow chrome)')
+    /* The sidebar collapse control is position:fixed against the VIEWPORT. A theme rule
+       that establishes a containing block (transform / filter / backdrop-filter on any
+       ancestor of it) moves that button off the titlebar — the reported "the collapse
+       button disappeared". Its box must be identical with the frost on and off. */
+    const collapse=await browser.evaluate(`(()=>{
+      const e=document.querySelector('[data-endfield-collapse-toggle]')
+      const s=getComputedStyle(e), r=e.getBoundingClientRect()
+      return {position:s.position,z:s.zIndex,x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height)}}
+    )()`)
+    assert.equal(collapse.position,'fixed','the collapse control must stay fixed-positioned')
+    assert.equal(collapse.z,'30','the collapse control keeps its own stacking level')
+    assert.equal(JSON.stringify(await browser.evaluate('document.querySelector("[data-endfield-collapse-toggle]").getBoundingClientRect().toJSON()')),collapseBefore,'the collapse control must not move when the frost is on (a backdrop-filter ancestor would break its fixed containing block)')
     const pos=await browser.evaluate('(()=>{const r=document.querySelector("#cell").getBoundingClientRect();return{x:r.x+20,y:r.y+10}})()')
     await browser.send('Input.dispatchMouseEvent',{type:'mouseMoved',...pos})
     const colors=await browser.evaluate(`(()=>{
