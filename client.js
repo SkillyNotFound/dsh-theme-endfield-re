@@ -4418,30 +4418,40 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           rgba(0, 0, 0, 0) 0px,
           color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent) 36px) !important;
       }
-      /* Optional bounded frost. No full-window blur, nested filters or animation. */
+      /* Optional bounded frost. No full-window blur, nested filters or animation.
+
+         ONE treatment, THREE surfaces: the composer card, the left sidebar column and
+         the Windows titlebar band. The fill is deliberately a LIGHT tint rather than a
+         near-opaque pane, so the contour sheet stays readable through all of them (that
+         is what 磨砂玻璃 is for here), and the blur is small for the same reason: a
+         visible outline smeared over a 14px radius stops reading as an outline, which is
+         exactly what the composer looked like before the radius came down to 10. Both
+         numbers are shared, so no surface can drift away from the others. */
       body[data-endfield-glass] {
         --edge-glass-fill: 248 247 240;
-        --edge-glass-alpha: .8;
-        --edge-glass-blur: 14px;
+        --edge-glass-alpha: .62;
+        --edge-glass-blur: 10px;
         --edge-glass-edge: rgb(255 255 255 / .65);
         --edge-glass-sheen: rgb(255 255 255 / .35);
       }
       body[data-endfield-glass][data-ds-dark-theme] {
         --edge-glass-fill: 31 36 34;
-        --edge-glass-alpha: .76;
+        --edge-glass-alpha: .72;
         --edge-glass-edge: rgb(255 255 255 / .18);
         --edge-glass-sheen: rgb(255 255 255 / .07);
       }
-      body[data-endfield-glass='subtle'] { --edge-glass-alpha: .68; --edge-glass-blur: 8px; }
-      body[data-endfield-glass='strong'] { --edge-glass-alpha: .9; --edge-glass-blur: 22px; }
-      body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .64; }
-      body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .88; }
+      /* Lighter tiers stay lighter than the surface they sit on, so raising the level is
+         still an increase. The offsets are smaller than they were because the base alpha
+         dropped: at 0.9 the pane stops being a tint at all. */
+      body[data-endfield-glass='subtle'] { --edge-glass-alpha: .52; --edge-glass-blur: 6px; }
+      body[data-endfield-glass='strong'] { --edge-glass-alpha: .76; --edge-glass-blur: 15px; }
+      body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .62; }
+      body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .85; }
       /* ---------- the frosted surface -------------------------------------------------
          WHICH ELEMENT CARRIES THE FROST.
 
          The composer card is a real surface: the app's own data-composer-card hook,
-         one box, already the carrier of the bloom, so it takes the whole treatment
-         (fill + sheen + blur + edge stroke) directly.
+         one box, already the carrier of the bloom, so it takes the treatment directly.
 
          The right panel is NOT. [data-sidebar-right-panel] is the panel's
          POSITIONING SHELL: a position:absolute / top:0 / bottom:0 / right:0 overlay
@@ -4479,22 +4489,82 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         --dsw-elevation-stroke-color: var(--edge-glass-edge);
       }
-      body[data-endfield-glass] [data-slot='sidebar'] > div {
-        background-image: linear-gradient(145deg, var(--edge-glass-sheen), transparent 58%),
-          radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--edge-accent) 8%, transparent), transparent 75%);
+      /* The sidebar column and the Windows titlebar band, as two parts of ONE surface.
+
+         They are two different boxes -- '.BynINW_sidebarCol' (the grid's first column)
+         and the frame's own '::before' band that the host lays across the top with
+         height:var(--dsh-windows-titlebar-height) -- but the host paints both with
+         background:var(--dsw-specific-sidebar-fill), and it sets the sidebar's
+         border-right to none on Windows. So they are the same panel material, and they
+         get the same fill, the same blur and the same hairline.
+
+         The hairline is on the titlebar band because that is the edge the two do not
+         share: inset 0 -1px 0 draws along its BOTTOM, which continues the sidebar's
+         right edge as one continuous boundary around the corner. The old
+         [data-slot='sidebar'] rule matched nothing at all -- no shipped bundle emits
+         that slot id -- so the sidebar had no tint and no boundary before this. */
+      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
+      body[data-endfield-glass] [class*='_frame']::before {
+        background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha)) !important;
+        -webkit-backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
+        backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
+      }
+      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
         box-shadow: inset -1px 0 0 var(--edge-glass-edge);
       }
+      /* html[...], NOT body[...]: the host puts data-windows-titlebar on the ROOT element
+         (it is read as document.documentElement.hasAttribute('data-windows-titlebar')
+         and its CSS is written html[data-windows-titlebar] ...). A body-scoped copy of
+         that attribute never matches, which silently drops the line. */
+      html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
+        box-shadow: inset 0 -1px 0 var(--edge-glass-edge);
+      }
+      /* ---------- the shared accent glow ----------------------------------------------
+         The specular sheen and the accent bloom, as ONE continuous L across the corner,
+         not one copy per surface.
+
+         It cannot be the surfaces' own background-image: two elements can only ever
+         paint two separate gradients, and a corner would show two hard seams. So the
+         135deg sheen lives on a single overlay that spans the whole L at once -- from
+         the frame's left edge down to the sidebar's bottom, and across the titlebar --
+         which is exactly what makes the gradient run unbroken from the sidebar up and
+         around into the band.
+
+         ::after on the frame is the only free pseudo there (::before already carries
+         the host's titlebar band), and it is positioned at z-index 0 inside an
+         overflow:hidden frame, so it paints over both surfaces and under every
+         in-flow descendant. Gated on the contour layer being mounted, so with 等高线
+         off the frosted look is pure tint with no glow, keeping one source of truth
+         for "is the sheet on". */
+      body[data-endfield-glass] [class*='_frame']:has(> [data-endfield-contour])::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 0;
+        pointer-events: none;
+        width: var(--dsh-sidebar-width, 280px);
+        height: var(--dsh-frame-top-clearance, var(--dsh-windows-titlebar-height, 0px));
+        background-image: linear-gradient(135deg, var(--edge-glass-sheen), transparent 62%),
+          radial-gradient(ellipse at 0% 100%, color-mix(in srgb, var(--edge-accent) 9%, transparent), transparent 72%);
+      }
       @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+        /* No backdrop filter: the tint has to carry the whole material, so use a nearly
+           opaque fill rather than a translucent one that would let text show through. */
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
-          [data-dockkit-host='dock'] > [class*='_tabHost'] {
+          [data-dockkit-host='dock'] > [class*='_tabHost'],
+        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
+        body[data-endfield-glass] [class*='_frame']::before {
           background-color: rgb(var(--edge-glass-fill) / .96) !important;
         }
       }
       @media (prefers-reduced-transparency: reduce) {
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
-          [data-dockkit-host='dock'] > [class*='_tabHost'] {
+          [data-dockkit-host='dock'] > [class*='_tabHost'],
+        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
+        body[data-endfield-glass] [class*='_frame']::before {
           background-color: rgb(var(--edge-glass-fill)) !important;
           -webkit-backdrop-filter: none; backdrop-filter: none;
         }

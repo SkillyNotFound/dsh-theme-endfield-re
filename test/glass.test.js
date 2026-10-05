@@ -8,7 +8,7 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
   const original=await browser.evaluate('JSON.stringify(document.querySelector("[data-composer-card]").getBoundingClientRect().toJSON())')
   for(const dark of [false,true])for(const palette of ['valley','wuling']) {
     await browser.evaluate(`document.body.toggleAttribute('data-ds-dark-theme',${dark});__prefs.setItem('dsh-theme-endfield-palette',${JSON.stringify(palette)})`)
-    for(const [level,radius,alpha] of [['subtle',8,dark?.64:.68],['standard',14,dark?.76:.8],['strong',22,dark?.88:.9]]){
+    for(const [level,radius,alpha] of [['subtle',6,dark?.62:.52],['standard',10,dark?.72:.62],['strong',15,dark?.85:.76]]){
       await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass',${JSON.stringify(level)})`)
       const material=await browser.evaluate(`(()=>{const e=document.querySelector('[data-composer-card]'),s=getComputedStyle(e);return {filter:s.backdropFilter,background:s.backgroundColor,box:JSON.stringify(e.getBoundingClientRect().toJSON())}})()`)
       assert.match(material.filter,new RegExp('blur\\('+radius+'px\\)'))
@@ -29,10 +29,39 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
       return {pane:pane?read(pane):null,shell:read(shell),paneFound:!!pane}
     })()`)
     assert.equal(panel.paneFound,true,'the pane surface must still be matched by the rule (a host rebuild may have moved it)')
-    assert.match(panel.pane.filter,/blur\(14px\)/,'the docked pane surface must carry the frost')
+    assert.match(panel.pane.filter,/blur\(10px\)/,'the docked pane surface must carry the frost')
     assert.notEqual(panel.pane.background,'rgba(0, 0, 0, 0)','the docked pane surface must carry the glass fill')
     assert.equal(panel.shell.filter,'none','the panel shell is a full-height overlay and must never be frosted')
     assert.equal(panel.shell.background,'rgba(0, 0, 0, 0)','the panel shell must stay transparent so the conversation column is not flattened')
+    /* ONE treatment across the composer, the sidebar column and the Windows titlebar band.
+       The sidebar/titlebar rule used to address [data-slot='sidebar'], which no shipped
+       bundle emits, so the sidebar silently got nothing at all. Asserting all three carry
+       the SAME fill and the SAME blur is what keeps them from drifting apart again. */
+    const surfaces=await browser.evaluate(`(()=>{
+      const read=(e,pe)=>{const s=getComputedStyle(e,pe||null);return{
+        filter:s.backdropFilter||s.webkitBackdropFilter, background:s.backgroundColor, shadow:s.boxShadow}}
+      return {composer:read(document.querySelector('[data-composer-card]')),
+              sidebar:read(document.querySelector('.BynINW_sidebarCol')),
+              titlebar:read(document.querySelector('.BynINW_frame'),'::before'),
+              glow:read(document.querySelector('.BynINW_frame'),'::after')}
+    })()`)
+    assert.match(surfaces.sidebar.filter,/blur\(10px\)/,'the sidebar column must carry the frost (the old [data-slot=sidebar] rule matched nothing)')
+    assert.match(surfaces.titlebar.filter,/blur\(10px\)/,'the Windows titlebar band must carry the frost')
+    assert.equal(surfaces.sidebar.background,surfaces.composer.background,'sidebar and composer must share one fill')
+    assert.equal(surfaces.titlebar.background,surfaces.composer.background,'titlebar band and composer must share one fill')
+    assert.match(surfaces.sidebar.shadow,/inset/,'the sidebar needs its right-edge boundary line (the host sets border-right:none on Windows)')
+    assert.match(surfaces.titlebar.shadow,/inset/,'the titlebar band needs its bottom boundary line')
+    /* ...and the sheen/accent is ONE layer covering both, not a copy each: an ::after on
+       the frame spanning the sidebar width and the titlebar height. */
+    assert.notEqual(surfaces.glow.background,undefined)
+    assert.match(await browser.evaluate(`getComputedStyle(document.querySelector('.BynINW_frame'),'::after').backgroundImage`),/gradient/,'the shared glow layer must paint the sheen')
+    const glowBox=await browser.evaluate(`(()=>{const s=getComputedStyle(document.querySelector('.BynINW_frame'),'::after');
+      const side=document.querySelector('.BynINW_sidebarCol').getBoundingClientRect();
+      const band=document.querySelector('.BynINW_frame').getBoundingClientRect();
+      return{w:s.width,h:s.height,content:s.content,sidebarW:side.width,bandTop:side.top,frameH:band.height}})()`)
+    assert.notEqual(glowBox.content,'none','the shared glow layer must be generated')
+    assert.equal(glowBox.w,Math.round(glowBox.sidebarW)+'px','the glow layer spans the sidebar width')
+    assert.equal(glowBox.h,Math.round(glowBox.bandTop)+'px','the glow layer spans the titlebar band height (one L, not two copies)')
     const pos=await browser.evaluate('(()=>{const r=document.querySelector("#cell").getBoundingClientRect();return{x:r.x+20,y:r.y+10}})()')
     await browser.send('Input.dispatchMouseEvent',{type:'mouseMoved',...pos})
     const colors=await browser.evaluate(`(()=>{

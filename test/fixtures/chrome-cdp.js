@@ -65,12 +65,23 @@ async function launch() {
     }}
   }catch(error){await close();throw error}
 }
-const HTML=`<!doctype html><html><head><style>
+const HTML=`<!doctype html><html data-windows-titlebar><head><style>
 html,body{height:100%;margin:0}body{--dsw-alias-bg-base:#e8e8e2;--dsw-alias-bg-layer-1:#f2f2ec;
---dsw-alias-label-primary:#101110;--dsw-alias-border-l1:#ccc;--dsw-alias-border-l2:#aaa}
-body[data-ds-dark-theme]{--dsw-alias-bg-base:#101110;--dsw-alias-bg-layer-1:#181a17;--dsw-alias-label-primary:#f5f5f0}
-.app_frame{position:relative;display:grid;grid-template-columns:220px 1fr;height:100%;background:var(--dsw-alias-bg-base)}
-.app_centerCol,.app_sidebarCol{position:relative}.wSkVaW_root{height:100%}.test_tableScroll{margin:60px 30px}
+--dsw-alias-label-primary:#101110;--dsw-alias-border-l1:#ccc;--dsw-alias-border-l2:#aaa;
+--dsw-specific-sidebar-fill:#f0efe8;--dsh-windows-titlebar-height:36px;--dsh-sidebar-width:220px}
+body[data-ds-dark-theme]{--dsw-alias-bg-base:#101110;--dsw-alias-bg-layer-1:#181a17;--dsw-alias-label-primary:#f5f5f0;
+--dsw-specific-sidebar-fill:#191c19}
+/* Class names follow the shipped layout module: '<hash>_frame' / '<hash>_sidebarCol', i.e.
+   module_export with NO line suffix. That is the naming the theme's suffix selectors are
+   written against, so the fixture has to carry it — otherwise the sidebar/titlebar rules
+   look dead here for a reason that does not exist in the app. */
+.BynINW_frame{position:relative;display:grid;grid-template-columns:220px 1fr;grid-template-rows:minmax(0,1fr);
+  box-sizing:border-box;padding-top:var(--dsh-windows-titlebar-height);height:100%;background:var(--dsw-alias-bg-base);overflow:hidden}
+.BynINW_frame::before{content:"";position:absolute;inset:0 0 auto;height:var(--dsh-windows-titlebar-height);
+  background:var(--dsw-specific-sidebar-fill);-webkit-app-region:drag}
+.BynINW_sidebarCol{position:relative;background:var(--dsw-specific-sidebar-fill);min-width:0;overflow:hidden}
+.BynINW_centerCol{position:relative;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.wSkVaW_root{height:100%}.test_tableScroll{margin:60px 30px}
 td{padding:12px}[data-composer-card]{position:absolute;bottom:30px;left:260px;width:550px;height:90px;background:#eee}
 /* The panel shell is transparent in the shipped SidebarRight.module.css (background:0 0)
    — it is the positioning overlay, not a surface. Kept faithful here, because the
@@ -80,8 +91,8 @@ td{padding:12px}[data-composer-card]{position:absolute;bottom:30px;left:260px;wi
 /* DockLayout's surface, named the way the host really names it: export_hash_line, so
    the theme has to substring-match rather than suffix-match here. */
 ._tabHost_6nhg2_162{flex:1 1 auto;width:100%;height:100%;background:rgb(238,238,238)}
-</style></head><body><div class="app_frame"><div class="app_sidebarCol" data-slot="sidebar"><div>Sidebar</div></div>
-<div class="app_centerCol"><div class="wSkVaW_root"><table class="test_tableScroll"><tbody><tr><td id="cell">Selected text inside a hovered row</td></tr></tbody></table></div></div>
+</style></head><body><div class="BynINW_frame"><div class="BynINW_sidebarCol" data-slot="sidebar"><div>Sidebar</div></div>
+<div class="BynINW_centerCol"><div class="wSkVaW_root"><table class="test_tableScroll"><tbody><tr><td id="cell">Selected text inside a hovered row</td></tr></tbody></table></div></div>
 <div data-composer-card>Composer</div>
 <div data-sidebar-right-panel="push" data-sidebar-right-open>
   <div data-dockkit-host="dock" data-dockkit-column="0" data-dockkit-pane>

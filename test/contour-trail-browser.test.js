@@ -26,7 +26,7 @@ const prefix = `
   window.__mouse=(x,y,type='mouse')=>{
     const event=new PointerEvent('pointermove',{clientX:x,clientY:y,pointerType:type,isPrimary:true,bubbles:true});
     Object.defineProperty(event,'timeStamp',{value:__now});
-    __dispatching=true;document.querySelector('.app_frame').dispatchEvent(event);__dispatching=false;
+    __dispatching=true;document.querySelector('.BynINW_frame').dispatchEvent(event);__dispatching=false;
   };
   window.__hash=()=>{
     const c=document.querySelector('[data-endfield-contour-lines]');
