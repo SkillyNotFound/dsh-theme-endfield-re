@@ -48,8 +48,12 @@ const target = path.resolve(value('target') ?? path.join(dshHome, 'profiles', pr
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 
 /* Only files, never the working tree's dev-only additions. `files` is the manifest's own
-   answer to "what ships", so it is also the answer to "what does the app need". */
-const entries = (pkg.files ?? []).filter((entry) => fs.existsSync(path.join(root, entry)))
+   answer to "what ships", so it is also the answer to "what does the app need" — with one
+   addition: npm always ships `package.json` whether or not `files` lists it, and leaving it
+   out meant a version bump never reached the profile while the check still reported "in
+   sync", because the check read the same incomplete list. */
+const entries = [...new Set(['package.json', ...(pkg.files ?? [])])]
+  .filter((entry) => fs.existsSync(path.join(root, entry)))
 if (entries.length === 0) {
   console.error('ERROR: package.json has no usable `files` entries; nothing to deploy.')
   process.exit(1)
