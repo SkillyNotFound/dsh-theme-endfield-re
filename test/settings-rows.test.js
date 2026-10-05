@@ -167,12 +167,15 @@ const buttons = nodes.filter((n) => n.type === 'button')
    → 启动加载动画音 → 诊断日志. 当前音源 and 自定义音效目录 are deliberately gone
    (custom sound sources are not supported yet), so they must not come back here
    without the rows themselves coming back. */
-const ROW_KEYS = ['theme', 'palette', 'glass', 'radius', 'contour', 'contour-anim', 'contour-trail', 'contour-renderer', 'contour-fps', 'contour-speed', 'contour-scroll-pause', 'bokeh', 'bokeh-wash', 'watermark', 'watermark-persist', 'composer-glow', 'loader', 'thunder', 'thunder-anim', 'audio', 'audio-volume', 'audio-start', 'audio-done', 'audio-attention', 'audio-fail', 'audio-human', 'audio-boot', 'audio-diag']
+const ROW_KEYS = ['theme', 'palette', 'glass', 'glass-blur', 'radius', 'contour', 'contour-anim', 'contour-trail', 'contour-renderer', 'contour-fps', 'contour-speed', 'contour-scroll-pause', 'bokeh', 'bokeh-wash', 'watermark', 'watermark-persist', 'composer-glow', 'loader', 'thunder', 'thunder-anim', 'audio', 'audio-volume', 'audio-start', 'audio-done', 'audio-attention', 'audio-fail', 'audio-human', 'audio-boot', 'audio-diag']
 const rows = nodes.filter((n) => n.type === 'div' && n.props && ROW_KEYS.includes(n.props.key))
 const groups = (tree.children || []).filter((c) => c && c.type === 'div' && c.props && /^group-/.test(c.props.key))
 
-if (rows.length === 28) pass('panel has all 28 setting rows')
-else fail('expected 28 rows, found ' + rows.length)
+/* Derived from ROW_KEYS rather than hardcoded: the count is the same contract as the
+   list, so keeping two numbers in step by hand is exactly the bookkeeping that lets a
+   row go missing. The list itself is still asserted against the PAGE below. */
+if (rows.length === ROW_KEYS.length) pass('panel has all ' + ROW_KEYS.length + ' setting rows')
+else fail('expected ' + ROW_KEYS.length + ' rows, found ' + rows.length)
 
 /* Count the rows the way the PAGE defines them — every direct child of a group
    container — so an unlisted new row shows up as a mismatch instead of vanishing. */

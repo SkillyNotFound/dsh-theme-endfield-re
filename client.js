@@ -129,6 +129,12 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       palette: 'valley',
       radius: 'square',
       glass: 'off',
+      /* 磨砂模糊 (glass blur) — the radius the frost defocuses by, sold separately from
+         the level above because the two answer different questions: the level is how
+         much tint, this is how much defocus. Shipped at 'standard' = 5px, which keeps
+         a 1-2px contour stroke readable through the glass; see the note in the
+         stylesheet for why the range stops at 10px. */
+      glassBlur: 'standard',
       /* 输入框泛光 (composer bloom) — the rectangle of light behind the composer
          card on the empty-conversation page. Shipped at 'standard', i.e. the
          strength the hero had before this became a row; 'off' removes the
@@ -211,6 +217,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       'dsh-theme-endfield-palette': 'palette',
       'dsh-theme-endfield-radius': 'radius',
       'dsh-theme-endfield-glass': 'glass',
+      'dsh-theme-endfield-glass-blur': 'glassBlur',
       'dsh-theme-endfield-composer-glow': 'composerGlow',
       'dsh-theme-endfield-bokeh': 'bokeh',
       'dsh-theme-endfield-bokeh-wash': 'bokehWash',
@@ -1172,11 +1179,26 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       const value = prefsGet(GLASS_KEY)
       return GLASS_OPTIONS.includes(value) ? value : 'off'
     }
+    /* 磨砂模糊 — the blur radius knob. It is independent of the level above on purpose:
+       the level carries opacity, this carries defocus. They were one control, and the
+       result was that the only way to get a tint that still showed the contour also gave
+       you a radius that erased it. */
+    const GLASS_BLUR_KEY = 'dsh-theme-endfield-glass-blur'
+    const GLASS_BLUR_OPTIONS = ['off', 'soft', 'standard', 'heavy']
+    const readGlassBlur = () => {
+      const value = prefsGet(GLASS_BLUR_KEY)
+      return GLASS_BLUR_OPTIONS.includes(value) ? value : 'standard'
+    }
     const syncGlass = () => {
       if (typeof document === 'undefined' || document.body === null) return
       const value = readGlass()
-      if (isEnabled() && value !== 'off') document.body.setAttribute?.('data-endfield-glass', value)
-      else document.body.removeAttribute?.('data-endfield-glass')
+      if (isEnabled() && value !== 'off') {
+        document.body.setAttribute?.('data-endfield-glass', value)
+        document.body.setAttribute?.('data-endfield-glass-blur', readGlassBlur())
+      } else {
+        document.body.removeAttribute?.('data-endfield-glass')
+        document.body.removeAttribute?.('data-endfield-glass-blur')
+      }
     }
     /* ---------- 输入框泛光 (composer bloom) ----------
        The rectangle of light behind the composer card on the start page, and how
@@ -4420,33 +4442,61 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       /* Optional bounded frost. No full-window blur, nested filters or animation.
 
-         ONE treatment, THREE surfaces: the composer card, the left sidebar column and
-         the Windows titlebar band. The fill is deliberately a LIGHT tint rather than a
-         near-opaque pane, so the contour sheet stays readable through all of them (that
-         is what 磨砂玻璃 is for here), and the blur is small for the same reason: a
-         visible outline smeared over a 14px radius stops reading as an outline, which is
-         exactly what the composer looked like before the radius came down to 10. Both
-         numbers are shared, so no surface can drift away from the others. */
+         ONE treatment, FOUR surfaces: the composer card, the left sidebar column, the
+         Windows titlebar band (the sidebar and the band are one L-shaped panel), and the
+         docked right panel's surface.
+
+         How light the numbers are is the whole point of this block:
+
+           the fill is a TINT, not a pane   -- the accent contour sheet is the BACKGROUND
+                                              of this theme, and it has to stay readable
+                                              through the glass;
+           the blur is TINY                 -- the sheet's stroke is 1-2 px. A gaussian
+                                              that spreads it over 10 px keeps only
+                                              ~0.5/sqrt(0.25+100) = 5% of the peak, i.e.
+                                              the lines stop existing and the surface
+                                              reads as one flat slab. Measured on the
+                                              real DOM: at blur(10px) the sidebar over a
+                                              stripe sheet sampled a UNIFORM (26,31,28)
+                                              -- the stripes had been averaged away --
+                                              while the un-blurred titlebar band showed
+                                              the raw (255,245,0). That is the reported
+                                              "the sidebar is just black now".
+
+         So the level below carries the OPACITY and the exact radius is owned by
+         --edge-glass-blur, which the 磨砂模糊 row sets from 0 to 14 px. */
       body[data-endfield-glass] {
         --edge-glass-fill: 248 247 240;
-        --edge-glass-alpha: .62;
-        --edge-glass-blur: 10px;
+        --edge-glass-alpha: .42;
+        --edge-glass-blur: 4px;
         --edge-glass-edge: rgb(255 255 255 / .65);
         --edge-glass-sheen: rgb(255 255 255 / .35);
       }
       body[data-endfield-glass][data-ds-dark-theme] {
         --edge-glass-fill: 31 36 34;
-        --edge-glass-alpha: .72;
+        --edge-glass-alpha: .40;
         --edge-glass-edge: rgb(255 255 255 / .18);
         --edge-glass-sheen: rgb(255 255 255 / .07);
       }
       /* Lighter tiers stay lighter than the surface they sit on, so raising the level is
-         still an increase. The offsets are smaller than they were because the base alpha
-         dropped: at 0.9 the pane stops being a tint at all. */
-      body[data-endfield-glass='subtle'] { --edge-glass-alpha: .52; --edge-glass-blur: 6px; }
-      body[data-endfield-glass='strong'] { --edge-glass-alpha: .76; --edge-glass-blur: 15px; }
-      body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .62; }
-      body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .85; }
+         still an increase. The spread is narrow because the top of the range has to stay
+         a tint: past ~0.6 the contour stops reading through the glass at all. */
+      body[data-endfield-glass='subtle'] { --edge-glass-alpha: .30; }
+      body[data-endfield-glass='strong'] { --edge-glass-alpha: .52; }
+      body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .30; }
+      body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .52; }
+      /* 磨砂模糊 (glass blur). Owns the radius for every surface, so the level above can
+         stay about opacity alone. 'off' is 0, not a removed attribute: the frost stays,
+         it just stops defocusing what is behind it.
+
+         The top of the range is 8px on purpose. These surfaces are TINTED, not opaque,
+         so the backdrop is what carries their texture: past ~10px a 2px contour stroke
+         stops surviving the gaussian and the surface reads as one flat slab rather than
+         as frosted glass. */
+      body[data-endfield-glass-blur='off'] { --edge-glass-blur: 0px; }
+      body[data-endfield-glass-blur='soft'] { --edge-glass-blur: 2px; }
+      body[data-endfield-glass-blur='standard'] { --edge-glass-blur: 4px; }
+      body[data-endfield-glass-blur='heavy'] { --edge-glass-blur: 8px; }
       /* ---------- the frosted surface -------------------------------------------------
          WHICH ELEMENT CARRIES THE FROST.
 
@@ -6074,8 +6124,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       contourAnimHintOn: '等高线缓慢流动变形（可选 24 / 60 / 120 FPS，关闭后为静态图案）',
       contourAnimHintOff: '静态等高线，不做任何逐帧计算',
       contourAnimHintReduced: '系统已开启「减少动态效果」，当前保持静态',
-      glassRow: '磨砂玻璃', glassHint: '仅输入框和停靠面板使用局部模糊；侧栏保持静态质感',
+      glassRow: '磨砂玻璃', glassHint: '输入框、左侧栏与顶栏共用同一质感；透明度随之变化',
       glassOff: '关闭', glassSubtle: '轻度', glassStandard: '标准', glassStrong: '浓厚',
+      glassBlurRow: '磨砂模糊', glassBlurHint: '模糊半径，越大越糊；等高线在 3px 以内最清晰',
+      glassBlurHintOff: '需先开启磨砂玻璃',
+      glassBlurOff: '关闭', glassBlurSoft: '轻微', glassBlurStandard: '标准', glassBlurHeavy: '浓厚',
       bokehRow: '中央散景', bokehHint: '首页以画面中心为圆心虚化；对话中沿对话列中轴线向两侧虚化，向外过渡回清晰',
       bokehNeedLayer: '需先开启等高线',
       bokehOff: '关闭', bokehSubtle: '轻微', bokehStandard: '标准', bokehStrong: '强烈',
@@ -6228,8 +6281,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       contourAnimHintOn: 'The field drifts at 24, 60 or 120 FPS (static pattern when off)',
       contourAnimHintOff: 'Static contours, with no per-frame work at all',
       contourAnimHintReduced: 'Your system asks for reduced motion, so it stays static',
-      glassRow: 'Frosted glass', glassHint: 'Local blur on the composer and docked panel; static sidebar texture',
+      glassRow: 'Frosted glass', glassHint: 'One material for the composer, the left sidebar and the titlebar band; the level sets how much tint',
       glassOff: 'Off', glassSubtle: 'Subtle', glassStandard: 'Standard', glassStrong: 'Strong',
+      glassBlurRow: 'Frost blur', glassBlurHint: 'Defocus radius: larger is softer. The contour reads best at 3px or below',
+      glassBlurHintOff: 'Needs frosted glass first',
+      glassBlurOff: 'Off', glassBlurSoft: 'Soft', glassBlurStandard: 'Standard', glassBlurHeavy: 'Heavy',
       bokehRow: 'Centre defocus', bokehHint: 'A radial defocus on the centre of the start page; along the conversation column\'s centre line, off to both sides, once a conversation is running',
       bokehNeedLayer: 'Needs the contour sheet',
       bokehOff: 'Off', bokehSubtle: 'Subtle', bokehStandard: 'Standard', bokehStrong: 'Strong',
@@ -6476,6 +6532,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           const [thunderAnim, setThunderAnim] = R.useState(isThunderAnimOn())
           const [palette, setPalette] = R.useState(readPalette())
           const [glass, setGlass] = R.useState(readGlass())
+          const [glassBlur, setGlassBlur] = R.useState(readGlassBlur())
           const [composerGlow, setComposerGlow] = R.useState(readComposerGlow())
           const [bokeh, setBokeh] = R.useState(readBokeh())
           const [bokehWash, setBokehWash] = R.useState(readBokehWash())
@@ -6555,6 +6612,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
               setThunderAnim(isThunderAnimOn())
               setPalette(readPalette())
               setGlass(readGlass())
+              setGlassBlur(readGlassBlur())
               setBokeh(readBokeh())
               setBokehWash(readBokehWash())
               setMode(prefsGet(RADIUS_KEY) || 'square')
@@ -6628,6 +6686,12 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
             if (!GLASS_OPTIONS.includes(value)) return
             prefsSet(GLASS_KEY, value)
             setGlass(value)
+            syncGlass()
+          }
+          const setGlassBlurValue = (value) => {
+            if (!GLASS_BLUR_OPTIONS.includes(value)) return
+            prefsSet(GLASS_BLUR_KEY, value)
+            setGlassBlur(value)
             syncGlass()
           }
           const setComposerGlowValue = (value) => {
@@ -7124,6 +7188,25 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
                     border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px' },
                 }, GLASS_OPTIONS.map((value) => R.createElement('option', { key: value, value },
                   t({ off: 'glassOff', subtle: 'glassSubtle', standard: 'glassStandard', strong: 'glassStrong' }[value]))))
+              ]),
+              /* 磨砂模糊 — the radius on its own row. A dependent row, not a second
+                 master: with 磨砂玻璃 off there is no frost to defocus, so the control
+                 disables (same treatment as the renderer row) rather than silently
+                 editing a value nothing reads. */
+              row('glass-blur', glass === 'off', [
+                R.createElement('span', { style: labelStyle }, t('glassBlurRow'),
+                  R.createElement('span', { style: hintStyle },
+                    t(glass === 'off' ? 'glassBlurHintOff' : 'glassBlurHint'))),
+                R.createElement('select', {
+                  'aria-label': t('glassBlurRow'), value: glassBlur,
+                  disabled: glass === 'off',
+                  onChange: (event) => setGlassBlurValue(event.target.value),
+                  style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
+                    border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px',
+                    cursor: glass === 'off' ? 'not-allowed' : 'pointer',
+                    opacity: glass === 'off' ? 0.45 : 1 },
+                }, GLASS_BLUR_OPTIONS.map((value) => R.createElement('option', { key: value, value },
+                  t({ off: 'glassBlurOff', soft: 'glassBlurSoft', standard: 'glassBlurStandard', heavy: 'glassBlurHeavy' }[value]))))
               ]),
               row('radius', true, [
                 R.createElement('span', { style: labelStyle }, t('radiusRow') + t('sep') + t(mode === 'round' ? 'radiusRound' : 'radiusSquare')),

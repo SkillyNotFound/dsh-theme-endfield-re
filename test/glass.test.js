@@ -8,13 +8,28 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
   const original=await browser.evaluate('JSON.stringify(document.querySelector("[data-composer-card]").getBoundingClientRect().toJSON())')
   for(const dark of [false,true])for(const palette of ['valley','wuling']) {
     await browser.evaluate(`document.body.toggleAttribute('data-ds-dark-theme',${dark});__prefs.setItem('dsh-theme-endfield-palette',${JSON.stringify(palette)})`)
-    for(const [level,radius,alpha] of [['subtle',6,dark?.62:.52],['standard',10,dark?.72:.62],['strong',15,dark?.85:.76]]){
+    /* The level moves OPACITY only; the radius is 磨砂模糊's job and so is constant here.
+       Dark is its own row of the ladder, not a copy of light's. */
+    const LADDER = dark ? [['subtle',.30],['standard',.40],['strong',.52]]
+                        : [['subtle',.30],['standard',.42],['strong',.52]]
+    for(const [level,alpha] of LADDER){
       await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass',${JSON.stringify(level)})`)
       const material=await browser.evaluate(`(()=>{const e=document.querySelector('[data-composer-card]'),s=getComputedStyle(e);return {filter:s.backdropFilter,background:s.backgroundColor,box:JSON.stringify(e.getBoundingClientRect().toJSON())}})()`)
-      assert.match(material.filter,new RegExp('blur\\('+radius+'px\\)'))
-      assert.match(material.background,new RegExp(String(alpha).replace('.','\\.')))
+      assert.match(material.filter,/blur\(4px\)/,'the radius comes from 磨砂模糊, not from the level')
+      assert.match(material.background,new RegExp(String(alpha).replace('.','\\.')),'level '+level+' must set its own opacity')
       assert.equal(material.box,original)
     }
+    /* 磨砂模糊 owns the radius for every surface. The values are deliberately small: the
+       frost is a tint, so the backdrop carries its texture, and a 2px contour stroke does
+       not survive a large gaussian. 'off' must be a REAL 0, and the ladder monotone. */
+    for(const [blur,radius] of [['off',0],['soft',2],['standard',4],['heavy',8]]){
+      await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass-blur',${JSON.stringify(blur)})`)
+      const got=await browser.evaluate(`getComputedStyle(document.querySelector('[data-composer-card]')).backdropFilter`)
+      assert.match(got,new RegExp('blur\\('+radius+'px\\)'),'磨砂模糊='+blur+' must set '+radius+'px on the composer')
+      const side=await browser.evaluate(`getComputedStyle(document.querySelector('.BynINW_sidebarCol')).backdropFilter`)
+      assert.match(side,new RegExp('blur\\('+radius+'px\\)'),'磨砂模糊='+blur+' must reach the sidebar too')
+    }
+    await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass-blur','standard')`)
     /* The right panel: the frost must land on the PANE SURFACE and never on the panel's
        positioning shell. The shell is a position:absolute / top:0 / bottom:0 / right:0
        overlay at the panel's full width (push mode is ~45vw), so frosting it paints a
@@ -29,7 +44,7 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
       return {pane:pane?read(pane):null,shell:read(shell),paneFound:!!pane}
     })()`)
     assert.equal(panel.paneFound,true,'the pane surface must still be matched by the rule (a host rebuild may have moved it)')
-    assert.match(panel.pane.filter,/blur\(10px\)/,'the docked pane surface must carry the frost')
+    assert.match(panel.pane.filter,/blur\(4px\)/,'the docked pane surface must carry the frost')
     assert.notEqual(panel.pane.background,'rgba(0, 0, 0, 0)','the docked pane surface must carry the glass fill')
     assert.equal(panel.shell.filter,'none','the panel shell is a full-height overlay and must never be frosted')
     assert.equal(panel.shell.background,'rgba(0, 0, 0, 0)','the panel shell must stay transparent so the conversation column is not flattened')
@@ -45,8 +60,8 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
               titlebar:read(document.querySelector('.BynINW_frame'),'::before'),
               glow:read(document.querySelector('.BynINW_frame'),'::after')}
     })()`)
-    assert.match(surfaces.sidebar.filter,/blur\(10px\)/,'the sidebar column must carry the frost (the old [data-slot=sidebar] rule matched nothing)')
-    assert.match(surfaces.titlebar.filter,/blur\(10px\)/,'the Windows titlebar band must carry the frost')
+    assert.match(surfaces.sidebar.filter,/blur\(4px\)/,'the sidebar column must carry the frost (the old [data-slot=sidebar] rule matched nothing)')
+    assert.match(surfaces.titlebar.filter,/blur\(4px\)/,'the Windows titlebar band must carry the frost')
     assert.equal(surfaces.sidebar.background,surfaces.composer.background,'sidebar and composer must share one fill')
     assert.equal(surfaces.titlebar.background,surfaces.composer.background,'titlebar band and composer must share one fill')
     assert.match(surfaces.sidebar.shadow,/inset/,'the sidebar needs its right-edge boundary line (the host sets border-right:none on Windows)')
