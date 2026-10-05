@@ -4436,7 +4436,42 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       body[data-endfield-glass='strong'] { --edge-glass-alpha: .9; --edge-glass-blur: 22px; }
       body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .64; }
       body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .88; }
-      body[data-endfield-glass] :is([data-composer-card], [data-sidebar-right-panel='push']) {
+      /* ---------- the frosted surface -------------------------------------------------
+         WHICH ELEMENT CARRIES THE FROST.
+
+         The composer card is a real surface: the app's own data-composer-card hook,
+         one box, already the carrier of the bloom, so it takes the whole treatment
+         (fill + sheen + blur + edge stroke) directly.
+
+         The right panel is NOT. [data-sidebar-right-panel] is the panel's
+         POSITIONING SHELL: a position:absolute / top:0 / bottom:0 / right:0 overlay
+         that the host keeps fully transparent (background:0 0 in
+         SidebarRight.module.css) and slides with transform:translateX(var(...)).
+         It spans the frame's entire right edge at the panel's full width -- push
+         mode is ~45vw. The visible surface is the DockLayout surface INSIDE it,
+         which is what the host paints (its '_tabHost' rule sets
+         background: var(--dsw-alias-bg-base)).
+
+         Frosting the shell therefore paints a full-height, half-window,
+         semi-transparent fill over the conversation column and flats the whole right
+         side of the frame behind a dead slab -- the reported desktop breakage -- and
+         runs a half-viewport-width backdrop blur on every composited frame. Frost the
+         surface instead: the fill stays inside the panel, and the backdrop it blurs
+         is the panel's own opaque host background rather than the page.
+
+         HOW the surface is addressed. [data-dockkit-host='dock'] is the pane cell and
+         is a host attribute rather than a module class, so it survives a rehash; the
+         surface is its direct child. That child's class needs a SUBSTRING match, not
+         the suffix match the layout module uses above: the layout bundles ship
+         'BynINW_centerCol' (module_export) while dockkit ships
+         '_tabHost_6nhg2_162' (export_hash_line). One substring, [class*='_tabHost'],
+         also covers the empty-pane state, whose surface is '_emptyTabHost_<hash>_<n>'.
+         A REPLACED hash breaks this rule by silently dropping the frost, so
+         test/glass.test.js asserts the match is alive in the fixture and fails loudly
+         if a host rebuild renames it. */
+      body[data-endfield-glass] [data-composer-card],
+      body[data-endfield-glass] [data-sidebar-right-panel]
+        [data-dockkit-host='dock'] > [class*='_tabHost'] {
         background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha)) !important;
         background-image: linear-gradient(145deg, var(--edge-glass-sheen), transparent 58%),
           radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--edge-accent) 10%, transparent), transparent 75%) !important;
@@ -4450,12 +4485,16 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         box-shadow: inset -1px 0 0 var(--edge-glass-edge);
       }
       @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-        body[data-endfield-glass] :is([data-composer-card], [data-sidebar-right-panel='push']) {
+        body[data-endfield-glass] [data-composer-card],
+        body[data-endfield-glass] [data-sidebar-right-panel]
+          [data-dockkit-host='dock'] > [class*='_tabHost'] {
           background-color: rgb(var(--edge-glass-fill) / .96) !important;
         }
       }
       @media (prefers-reduced-transparency: reduce) {
-        body[data-endfield-glass] :is([data-composer-card], [data-sidebar-right-panel='push']) {
+        body[data-endfield-glass] [data-composer-card],
+        body[data-endfield-glass] [data-sidebar-right-panel]
+          [data-dockkit-host='dock'] > [class*='_tabHost'] {
           background-color: rgb(var(--edge-glass-fill)) !important;
           -webkit-backdrop-filter: none; backdrop-filter: none;
         }
