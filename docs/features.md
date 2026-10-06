@@ -4,7 +4,7 @@
 
 设置入口：**设置 › 终末地主题设置**。全部文案跟随 DSH 的语言设置（中/英）即时切换，无需刷新。
 
-设置页顶部是一条**章节选择条（滑动槽）**，把下面五章收进五个等宽段，一次只显示一章：
+设置页顶部是一条**章节选择条（滑动槽）**，把下面六章收进五个等宽段，一次只显示一章：
 
 | 段（标题编号） | 章节 | 段标签（zh / en） |
 | --- | --- | --- |
@@ -13,6 +13,7 @@
 | 03 | 动画（启动加载动画） | 动画 / Animation |
 | 04 | 娱乐（雷霆大字 / 入场动画） | 娱乐 / Extras |
 | 05 | 音频（提示音总开关与各槽位） | 音频 / Audio |
+| 06 | 氛围（对话底侧泛光与色散） | 泛光 / Glow |
 
 - **段标签不带编号**（「主题」而不是「01 主题」）：一行五个编号读起来是杂讯。编号仍在两处——该章自己的标题（`01 主题 THEME`）与段的 tooltip（`01 主题`）。
 - **被选中的那一章有放大一倍的标题**：章标题按「标题」而不是「行标签」排版（名称 24px、拉丁行 18px、左侧强调竖条 8×28），行文案仍是 12px，因此切过去的一章读起来是标题而不是列表里的一行。
@@ -29,7 +30,7 @@
 
 历史内存风格：这些开关最初存浏览器 `localStorage`。由于浏览器存储按「协议 + 主机 + 端口」的 origin 隔离，而 DSH Desktop 每次启动都在 127.0.0.1 绑定一个**随机临时端口**，端口一变 origin 就变，上次保存的设置永远读不到，表现为「重启后恢复默认」。已改用 DSH 官方的用户设置命名空间：
 
-- **DSH 0.1.7-rc.1（当前）**：**Host 端（index.js）** 导出 schemastery `Config`，27 个字段全部 `.volatile()`——0.1.7 只把 volatile 字段投影成可编辑表单；命名空间就是本插件在 `cordis.patch.yml` 里那一行的 profile entry id（`theme-endfield`）。**浏览器端（client.js）** 用 `ctx.configForms.get('theme-endfield')` 读/写/订阅，值由 DSH 的设置服务写进 profile patch `<profile>/cordis.patch.yml`。另外 Host 会调用 `ctx.settings.configure({ auto: false }, ctx.fiber)` 告诉 DSH 本插件自带设置页，不要再自动生成一份。
+- **DSH 0.1.7-rc.1（当前）**：**Host 端（index.js）** 导出 schemastery `Config`，34 个字段全部 `.volatile()`——0.1.7 只把 volatile 字段投影成可编辑表单；命名空间就是本插件在 `cordis.patch.yml` 里那一行的 profile entry id（`theme-endfield`）。**浏览器端（client.js）** 用 `ctx.configForms.get('theme-endfield')` 读/写/订阅，值由 DSH 的设置服务写进 profile patch `<profile>/cordis.patch.yml`。另外 Host 会调用 `ctx.settings.configure({ auto: false }, ctx.fiber)` 告诉 DSH 本插件自带设置页，不要再自动生成一份。
 - **≤ 0.1.5-rc.2（旧宿主，仍兼容）**：Host 通过 `ctx.settings.register('dsh-theme-endfield', schema)` 声明命名空间，由 `@deepseek-ai/dsh-settings-file` 落到 `<dshHome>/settings.yaml`；浏览器端用 `ctx.settingsScope` 的 `bind({ namespace, decode })` 读写。client 在找不到 `configForms` 时自动回落到这条路径。
 
 两代的落盘位置都由 DSH 决定（`$DSH_HOME` 或 `~/.dsh/...`），与浏览器 origin/端口无关，因此在 **dsh web（浏览器、固定/默认端口）** 和 **DSH Desktop（随机临时端口）** 两种运行方式下设置都能正确持久化——它们跑的都是 127.0.0.1 loopback 页面，DSH 会把连接解析为 `host` 持久化模式。
@@ -47,7 +48,8 @@
 | 01 主题 | 终末地主题 | 开 | `enabled`（旧键 `dsh-theme-endfield-enabled`）|
 | | 主题配色 | 谷地黄 | `palette` |
 | | 主题圆角 | 直角 | `radius` |
-| | 磨砂玻璃 | 关 | `glass` |
+| | 输入框毛玻璃 | 关 | `glass` |
+| | 顶栏与侧栏毛玻璃 | 标准 | `chromeGlass` |
 | | 磨砂模糊 | 标准 | `glassBlur` |
 | 02 背景 | 等高线背景 | 开 | `contour` |
 | | 动态等高线 | 关 | `contourAnim` |
@@ -59,6 +61,8 @@
 | | 背景水印 | 开 | `watermark` |
 | | 水印保持显示 | 关 | `watermarkPersist` |
 | | 输入框泛光 | 标准 | `composerGlow` |
+| 06 氛围 | 对话底侧泛光 | 标准 | `bottomGlow` |
+| | 轻微色散 | 开 | `bottomGlowDispersion` |
 | 03 动画 | 启动加载动画 | 关 | `loader` |
 | 04 娱乐 | 雷霆大字 | 关 | `thunder` |
 | | 大字入场动画 | 关 | `thunderAnim` |
@@ -80,7 +84,7 @@
 
 ### 终末地主题（总开关）
 
-关闭后移除令牌层与样式表，界面回到应用原生外观，无需刷新。它同时是**所有其他功能的总闸**：关闭会一并拆掉水印、等高线、大字与订阅。
+关闭后移除令牌层与样式表，界面回到应用原生外观，无需刷新。它同时是**所有其他功能的总闸**：关闭会一并拆掉水印、等高线、对话底侧泛光、大字与任务状态订阅。
 
 **关闭后设置页仍保持可读。** 这一点需要专门处理：开关按钮的强调色底来自主题自己的样式表，样式表随主题关闭而移除，所以关闭时按钮回退到应用原生令牌（选中态实心底、常态透明描边），而不是留下「黑字落在深色面板上」的不可读状态。
 
@@ -94,27 +98,28 @@
 
 直角（默认）/ 圆角。同样是一个 class：`body.theme-endfield-round` 让整组 `border-radius: 0` 规则失效，恢复应用原生圆角。
 
-### 磨砂玻璃（默认关闭）
+### 毛玻璃（输入框与窗口 chrome 分开设置）
 
-**两行，分工是刻意的：磨砂玻璃管不透明度，磨砂模糊管模糊半径。** 它们原本是一个控件，后果就是「想淡到能看见等高线」的那个档位，同时给了你一个把等高线抹掉的半径。
+**三个选项，彼此独立。** `glass` 只控制输入框/停靠面板的透明度，`chromeGlass` 只控制左侧栏/Windows 顶栏的透明度；`glassBlur` 是两类表面共用的模糊半径。这样 chrome 可以保留毛玻璃，但比输入框更透。
 
 | 行 | 字段 | 取值 | 默认 |
 | --- | --- | --- | --- |
-| 磨砂玻璃 | `glass` | 关闭 / 轻度 / 标准 / 浓厚 | 关闭 |
+| 输入框毛玻璃 | `glass` | 关闭 / 轻度 / 标准 / 浓厚 | 关闭 |
+| 顶栏与侧栏毛玻璃 | `chromeGlass` | 关闭 / 轻度 / 标准 / 浓厚 | 标准（较低透明度） |
 | 磨砂模糊 | `glassBlur` | 关闭 / 轻微 / 标准 / 浓厚 = 0 / 2 / 4 / 8 px | 标准（4px） |
 
-前者选「关闭」是**移除属性**，不是画一层透明的；后者的「关闭」是真实的 `0px`——霜还在，只是不再虚化背后的东西。后者是**从属行**：磨砂玻璃关掉时没有霜可虚化，所以它置灰禁用，而不是去改一个没人读的值。
+任一毛玻璃选项设为「关闭」只移除对应表面的材质；模糊行仅在两种表面都关闭时置灰。模糊行选「关闭」是真实的 `0px`——霜还在，只是不再虚化背后的东西。
 
-**一种材质，三处表面**——输入框、左侧栏、以及停靠的右侧面板，都用同一个填充，所以不会各自漂移：
+**两种材质，四处表面：**
 
-| 表面 | 元素 | 说明 |
+| 表面 | 元素 | 透明度来源 |
 | --- | --- | --- |
-| 输入框 | `[data-composer-card]` | 自带边框 |
-| 左侧栏 | `[class*='_frame'] > [class*='_sidebarCol']` | 同时承载泛光；**右侧** 1px 边界线 |
-| 顶栏（Windows） | `[class*='_frame']::before` | 与侧栏**同一材质**：同填充、同 α 档、同模糊、同下边界线 |
-| 右侧面板 | `[data-dockkit-host='dock'] > [class*='_tabHost']` | —— |
+| 输入框 | `[data-composer-card]` | `glass` |
+| 右侧面板 | `[data-dockkit-host='dock'] > [class*='_tabHost']` | `glass` |
+| 左侧栏 | `[class*='_frame'] > [class*='_sidebarCol']` | `chromeGlass`；**右侧** 1px 边界线 |
+| 顶栏（Windows） | `[class*='_frame']::before` | 与侧栏同 α 档、同模糊、同下边界线 |
 
-**Windows 网页顶栏也算一处表面。** 用户要求顶栏与侧栏看起来连成一片，因此两者使用相同的填充/α 与模糊令牌。`lib/preload-app.cjs` 的独立探针会读取侧栏填充令牌并上报原生外观颜色，但这不足以证明原生 caption 控件如何与 CSS 顶栏组合；本主题测试也不覆盖原生 caption 绘制。测试验证的是浏览器内顶栏与侧栏的计算填充、模糊一致，以及顶栏背景透出图案。
+**Windows 网页顶栏也算一处表面。** 顶栏与侧栏使用相同的 chrome 填充/α 与模糊令牌，但不再跟随输入框的透明度。`lib/preload-app.cjs` 的独立探针会读取侧栏填充令牌并上报原生外观颜色；这不足以证明原生 caption 控件如何与 CSS 顶栏组合。测试验证浏览器内的材质、独立透明度档位、顶栏图案透出，以及打开模态页时遮罩也覆盖顶栏；不覆盖 OS caption 绘制。
 
 **只有宿主实际 fixed 的按钮才需要补偿位移。** Windows 下 toggle 在展开/折叠两态都固定于 (12,6)；new-session 只有在 rail 状态固定于 (48,6)。展开态的 new-session 是 logoRow 之后的普通 flex 子项（fixture 中 y=94），绝不能被提升到 titlebar；它的 label、mask、content 同样不是 fixed 控件。
 
@@ -214,8 +219,6 @@ Windows rail 的 wide 计算是 `wide = !collapsed`：折叠时宿主本身不�
 
 改这套数值前先看 [design-language.md § 光晕](design-language.md)：三件事被 `check.js` 静态守卫（形状必须锚在输入框上、必须在卡片之后、档位必须严格递增且「标准」= 1），每一条都配了反证用例。
 
----
-
 ## 03 动画
 
 ### 启动加载动画（默认关闭）
@@ -313,6 +316,16 @@ Windows rail 的 wide 计算是 `wide = !collapsed`：折叠时宿主本身不�
 
 **出厂音**：`boot` 启动加载动画音由 `lib/tone.js` 按 `lib/slots.js` 的音符定义算出来；其余四个槽位随包发布**录音**（48 kHz / 16-bit PCM / 立体声，4.4–6.4 秒，文件名 `start/end/wait/erro.wav`，由 `lib/slots.js` 的 `file` 字段声明）。
 `scripts/build-sounds.js` 只重新生成合成音槽位，**永不覆盖录音**（对录音只做存在性与格式校验）；四个录音实测峰值 −13.6 ~ −9.7 dBFS，比合成音低约 8–10 dB，详见 [audio-notifications.md §5](audio-notifications.md)。
+
+---
+
+## 06 氛围
+
+### 对话底侧泛光（默认「标准」）
+
+活跃对话列底部由 30 个低成本中心光源叠加成宽阔、柔和的椭圆光晕。各光源随机位置、大小、强度、色阶与呼吸周期；颜色在挂载时从当前主题色到白色范围抽取并保持稳定，不再定时跳色。空闲时直接测量实际输入框 `[data-composer-card]` 的中轴，把光源聚在其下方；侧栏开合或窗口尺寸变化时重新定位；任务运行时将位置平滑散布到整个视口底部。每个光源的中心始终锚在视口底线上，仅较快地呼吸缩放和亮度；实现不使用滤镜、遮罩或高频计时器以降低资源占用。谷地黄与武陵青分别以 `#fff500`、`#14d0d0` 为色阶起点。泛光通过 `mix-blend-mode: lighten` 提亮底层；色散可单独开关，系统减少动态效果时停用呼吸动画。
+
+泛光作为活动会话列中的负层挂载，由局部 `z-index` 顺序置于等高线之上、消息与输入区之下；不对会话列新增 `isolation`，避免切断输入框 `backdrop-filter` 的背景取样；光层不拦截鼠标或键盘。
 
 ---
 

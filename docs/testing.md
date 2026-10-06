@@ -105,13 +105,13 @@ node test/settings-locale.test.js   # 跟随语言设置（zh/en 词典对齐 + 
 
 **`settings-rows.test.js`** 不用浏览器也不用 React：以**记录型 `React` / `slots` + 假的设置 transport**（`test/fixtures/settings-scope.js`）在进程内跑一次真实 `apply()`，抓下设置面板真正的元素树。设置页是用户唯一能碰到这些开关的入口，而那里的错误（抛异常、漏 key、开关写错了 DSH 设置的字段）check.js 与画布测试都看不见。
 
-> 说明：这个插件从 **`localStorage` 迁移到了 DSH 的持久化设置服务**（见 features.md / engineering-notes.md）。因此设置类测试不再往浏览器存储里塞值，而是驱动假的 transport：除 `settings-config-forms.test.js` 之外的用例走旧世代 `ctx.settingsScope`（fixture 的 `settingsScopeStub`，在内存里扮演 `<settings.yaml>` 的命名字段节），新世代由 `configFormsStub` 扮演 `ctx.configForms`（命名空间 = profile entry id）。断言 28 行齐全且归入 5 个分组容器、key 唯一、分组标题（01 主题 / 02 背景 / 03 动画 / 04 娱乐 / 05 音频）与配色样式规则都在、配色行默认显示谷地黄且按钮提供「切换武陵青」、点击把 `palette` 写成 `wuling`、存了 `wuling` 时反向提供「切换谷地黄」并标注 `#14d0d0`、图层关闭时子开关为 disabled、开启后恢复可用，雷霆大字与大字入场动画均默认为关、说明文字包含「任务开始」/「任务完成」与 3 秒、**子开关只写自己的字段而不误写主开关的**，以及点击确实写入文档里那个 DSH 设置字段。
+> 说明：这个插件从 **`localStorage` 迁移到了 DSH 的持久化设置服务**（见 features.md / engineering-notes.md）。因此设置类测试不再往浏览器存储里塞值，而是驱动假的 transport：除 `settings-config-forms.test.js` 之外的用例走旧世代 `ctx.settingsScope`（fixture 的 `settingsScopeStub`，在内存里扮演 `<settings.yaml>` 的命名字段节），新世代由 `configFormsStub` 扮演 `ctx.configForms`（命名空间 = profile entry id）。断言 32 行齐全且归入 6 个分组容器、key 唯一、分组标题（01 主题 / 02 背景 / 03 动画 / 04 娱乐 / 05 音频 / 06 氛围）与配色样式规则都在、配色行默认显示谷地黄且按钮提供「切换武陵青」、点击把 `palette` 写成 `wuling`、存了 `wuling` 时反向提供「切换谷地黄」并标注 `#14d0d0`、图层关闭时子开关为 disabled、开启后恢复可用，雷霆大字与大字入场动画均默认为关、说明文字包含「任务开始」/「任务完成」与 3 秒、**子开关只写自己的字段而不误写主开关的**，以及点击确实写入文档里那个 DSH 设置字段。
 
-> 同一文件也守**章节选择条**（滑动槽）：条在页面顶部（`role=tablist`）、5 个段按章节顺序排列且**标签不带编号**、每段可点、默认选中第一章、**恰好一个章节可见**（其余 `display:none`）、tab 与 panel 的 `aria-controls` / `aria-labelledby` 互指、roving tabindex、每段 tooltip 里带「编号 + 章节名」；再点一次「背景」并重渲染，断言可见章节、`aria-selected` 与滑动块的 `translateX(100%)` 三者一起跟随；最后按一次 `→` 断言选择走到「动画」且调用了 `preventDefault`。选择条自身用 `key: 'tabs'`——**key 不能以 `group-` 开头**，否则上面的「5 个分组容器」会把选择条也算成一个章节。
+> 同一文件也守**章节选择条**（滑动槽）：条在页面顶部（`role=tablist`）、6 个段按章节顺序排列且**标签不带编号**、每段可点、默认选中第一章、**恰好一个章节可见**（其余 `display:none`）、tab 与 panel 的 `aria-controls` / `aria-labelledby` 互指、roving tabindex、每段 tooltip 里带「编号 + 章节名」；再点一次「背景」并重渲染，断言可见章节、`aria-selected` 与滑动块的 `translateX(100%)` 三者一起跟随；最后按一次 `→` 断言选择走到「动画」且调用了 `preventDefault`。选择条自身用 `key: 'tabs'`——**key 不能以 `group-` 开头**，否则上面的「6 个分组容器」会把选择条也算成一个章节。
 
 > 章标题的两条排版约定也在这里守着：行容器中线对齐、**英文行单独 `alignSelf: flex-end` 底对齐**、强调竖条不带 `alignSelf`（保持居中），以及**英文行严格小于中文名**（关系断言，不写死 px——档位是设计旋钮，比例才是约定）。
 
-> `settings-locale.test.js` 另外**从选择条本身**（按 `key: 'tabs'` 取子树，而不是全页文本）读出两套标签，断言中英分别为 `主题背景动画娱乐音频` / `ThemeBackgroundAnimationExtrasAudio`，并用 `/^[0-9]/` 断言标签里**没有章节编号**——这条守的就是「滑块文字不要 01 02」。
+> `settings-locale.test.js` 另外**从选择条本身**（按 `key: 'tabs'` 取子树，而不是全页文本）读出两套标签，断言中英分别为 `主题背景动画娱乐音频泛光` / `ThemeBackgroundAnimationExtrasAudioGlow`，并用 `/^[0-9]/` 断言标签里**没有章节编号**——这条守的就是「滑块文字不要 01 02」。
 
 > 选择条的悬停字色由 **`settings-off.test.js` 的对比度门禁**兜底（它探测面板里每个按钮，含 5 个段）。主题那条 `[role='tab']:hover` 反色规则带 `!important`，会盖掉行内字色——发现时它正把已选中的段变成「黄底白字」。修法是把 `.endfield-settings` 子树从该规则里排除，而这条断言的存在使同类回归无法静默通过。
 
@@ -147,7 +147,7 @@ node test/settings-locale.test.js   # 跟随语言设置（zh/en 词典对齐 + 
 
 > 变异验证 7 类，全部必须报错：把 `prefsFieldOf` 改回按前缀推导（原始 bug）、表里某条映射到相邻的错字段、删掉迁移、让迁移覆盖用户设过的值、`prefsSet` 不再叠加本地值（旧读序）、脏标记在「等于宿主值」时直接清、脏标记在「等于默认值」时直接清。
 
-**`settings-off.test.js`** 守的是设置页自己最脆弱的时刻：**开关按钮的强调色底来自主题样式表，而样式表随主题关闭被移除**。它在真实浏览器里加载真实 `client.js`，以应用**自己的默认令牌**（亮 / 暗两套）把主题关掉，用 `slots` 桩抓出真实元素树并物化成 DOM，然后断言每个按钮的合成对比度 ≥ 4.5（含章节选择条的 5 个段，共 84 条）。
+**`settings-off.test.js`** 守的是设置页自己最脆弱的时刻：**开关按钮的强调色底来自主题样式表，而样式表随主题关闭被移除**。它在真实浏览器里加载真实 `client.js`，以应用**自己的默认令牌**（亮 / 暗两套）把主题关掉，用 `slots` 桩抓出真实元素树并物化成 DOM，然后断言每个按钮的合成对比度 ≥ 4.5（含章节选择条的 6 个段，共 84 条）。
 
 > 这条断言抓到了一个真实缺陷：选择条的段标签一开始带 `transition: color`，于是方案切换时文字在整个淡出期间仍是**上一套方案的颜色**——亮转暗的头 140ms 里是近黑字压在深色面板上（1.36:1）。修法是去掉标签的颜色过渡，滑动块的 `transform` 负责动感。
 
@@ -189,6 +189,8 @@ node test/thunder-dismiss.test.js   # 点击关闭：真实指针事件 + 命中
 **`thunder-edges.test.js`** 在进程内跑真实 `client.js`，配一个按运行时契约造形的假 `sessions` 服务和一个**可控时钟**，因此 3 秒窗口是被断言的而不是被等待的。覆盖：关闭时**不订阅**（零开销）；`false→true` 播「任务开始」、`true→false` 播「任务完成」；**同值连续推送 25 次不重复播报**；2999ms 仍在、3000ms 已隐藏；入场动画默认关闭时大字带静态标记、开启后不带，且两种状态下 3 秒时长都不变；系统「减少动态效果」压过已开启的动画开关；切进已在运行的会话不误报、但其结束仍播报；离开的会话被退订；关闭主题会移除大字并退订、重新开启会恢复；**服务迟到后仍能自动接上**；`ctx.effect` 拆除时释放全部订阅与节点。
 
 另有 14 条**样式契约**断言（固定定位、居中、`pointer-events: none`、`font-weight: 900`、`clamp()` 字号、白色字面量、层级低于加载屏、`prefers-reduced-motion`、静态分支取消动画并强制 `opacity: 1`）——这些是本机无布局引擎时看不见、却最容易被后续重构悄悄改掉的视觉事实。
+
+同一用例还验证底侧泛光仅创建 30 个径向中心光源，逐个检查随机尺寸/色阶/呼吸参数；空闲位置由输入框 `[data-composer-card]` 的矩形范围决定；模拟侧栏开合并触发 transform transitionend，断言光心跟随输入框向右/向左移动；任务运行后散布到全窗，结束后收回；光源中心固定在视口底线；运行态光源高度约为空闲态两倍。样式断言椭圆径向渐隐、不使用滤镜/遮罩/will-change，光层不建立 `isolation` 以保留输入框 backdrop-filter 取样；颜色只在挂载时从当前强调色到白色范围抽取，不进行定时跳色；呼吸周期与缩放幅度均有上下界。
 
 > 变异验证共 19 类：默认改成 opt-out、边沿退化成电平、去掉基线、时长改成 5s、两个词对调、不自动隐藏、去掉 `aria-hidden`、切换会话不退订、拆除不退订、白色换成令牌、粗体改成 400、层级盖过加载屏、服务缓存不重试、动画默认改成 opt-out、静态标记永不打 / 永远打、系统偏好不再覆盖、子开关误写主开关的键、子开关未禁用、静态分支丢掉 `opacity: 1`。
 
@@ -293,7 +295,7 @@ node test/bloom.test.js
 node test/glass.test.js
 ```
 
-四套明暗 × 配色下逐档核对模糊半径与填充 alpha、几何稳定、悬停/选中对比度达标，另外钉住两条契约。
+四套明暗 × 配色下分别核对 composer/chrome 不透明度、共享模糊半径、几何稳定与对比度，并钉住材质挂载位置。
 
 **一、霜上在「面」，不上在「壳」：**
 
@@ -301,11 +303,11 @@ node test/glass.test.js
 - `[data-sidebar-right-panel]` **必须**保持全透明、`backdrop-filter: none`。它是通高的定位壳，上霜等于往对话栏盖半屏色膜；
 - 这两条在 `push` 与 `fullscreen` 两种模式下都成立——`fullscreen` 排除的是**壳**，不是面。
 
-**二、一种材质三处共用，黄色光源只有一个：**
+**二、composer 与 chrome 透明度独立，chrome 两处保持一致：**
 
-- 输入框、左侧栏 `.BynINW_sidebarCol`、顶栏 `::before` 三者的**填充字符串必须完全相等**；侧栏与顶栏模糊半径必须相等，并且随 `off/soft/standard/heavy` 档位同步变化；
+- composer `glass` 与 chrome `chromeGlass` 分别设置透明度；左侧栏 `.BynINW_sidebarCol` 与顶栏 `::before` 的**填充字符串必须完全相等**，且只随 chrome 档位变化；模糊半径共用 `off/soft/standard/heavy` 档位；
 - 侧栏与顶栏**各自必须有 `inset` 阴影**（边界线）。Windows 上宿主把侧栏的 `border-right` 置为 `none`，顶栏也没有边框，这两条线是唯一边界；
-- **真实像素检查顶栏模糊**：夹具把锐利条纹放到顶栏下方，比较 blur=`standard` 与 blur=`off` 的顶栏像素。只看 computed `backdrop-filter` 不够——原先 `frame::before` 被 z-index:0 等高线层盖住，计算样式有 blur，画面却仍是锐利的；现在测试同时钉住顶栏 `z-index:1`；
+- **真实像素检查顶栏模糊与遮罩**：夹具把锐利条纹放到顶栏下方，比较 blur=`standard` 与 blur=`off` 的像素；再打开 `*_mask`，确认模态遮罩从 y=0 开始并确实压暗顶栏。测试同时钉住顶栏 `z-index:1`；
 - **共享黄色光晕只准一层**：唯一 `radial-gradient` 在铺满 frame 的等高线底板上；顶栏与侧栏各自背景图不能再出现黄色径向光晕，避免两个独立的渐变在交界处分裂。这里不使用前景 `::after` 覆盖层。
 
 这些检查会抓住失效的 band stacking、重复的本地 radial glow、顶栏失去真实模糊，以及侧栏或 band 的独立填充漂移；浏览器夹具不覆盖操作系统原生 caption 控件的合成效果。

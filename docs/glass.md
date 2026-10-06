@@ -1,28 +1,29 @@
 # Optional frosted glass
 
-Two rows, and the split is deliberate: **磨砂玻璃 owns opacity, 磨砂模糊 owns the
-radius.** They used to be one control, and the consequence was that the only way to
-get a tint light enough to read the contour through also gave you a radius that
-erased it.
+Three rows, and the split is deliberate: **composer opacity and chrome opacity are
+independent; 磨砂模糊 owns the shared radius.** This lets the sidebar/titlebar stay much
+more transparent than the input while preserving a common blur level where enabled.
 
 | row | key | field | options | default |
 | --- | --- | --- | --- | --- |
-| 磨砂玻璃 / Frosted glass | `dsh-theme-endfield-glass` | `glass` | `off` `subtle` `standard` `strong` | `off` |
+| 输入框毛玻璃 / Composer glass | `dsh-theme-endfield-glass` | `glass` | `off` `subtle` `standard` `strong` | `off` |
+| 顶栏与侧栏毛玻璃 / Chrome glass | `dsh-theme-endfield-chrome-glass` | `chromeGlass` | `off` `subtle` `standard` `strong` | `standard` |
 | 磨砂模糊 / Frost blur | `dsh-theme-endfield-glass-blur` | `glassBlur` | `off` `soft` `standard` `heavy` | `standard` |
 
-`off` on the first row removes the material entirely; `off` on the second is a real
-`0px` — the frost stays, it just stops defocusing what is behind it. The second row
-is a dependent control: with 磨砂玻璃 off there is no frost to defocus, so it
-disables rather than editing a value nothing reads.
+`off` removes only that row's surfaces; the blur row is disabled only when both
+composer and chrome glass are off. Its `off` value is a real `0px`: the frost remains,
+it just stops defocusing what is behind it.
 
-Three surfaces carry it, with one shared fill each so none can drift away from the
-others:
+The composer and docked right-pane surface share the input-glass opacity. The left
+sidebar and Windows titlebar band share their own, deliberately lower chrome-glass
+opacity:
 
-| surface | element | notes |
-| --- | --- | --- |
-| composer card | `[data-composer-card]` | has its own border |
-| left sidebar | `[class*='_frame'] > [class*='_sidebarCol']` | also carries the glow; 1 px along its **right** edge |
-| docked right panel | `[data-dockkit-host='dock'] > [class*='_tabHost']` | — |
+| surface | element | opacity control | notes |
+| --- | --- | --- | --- |
+| composer card | `[data-composer-card]` | `glass` | has its own border |
+| docked right panel | `[data-dockkit-host='dock'] > [class*='_tabHost']` | `glass` | — |
+| left sidebar | `[class*='_frame'] > [class*='_sidebarCol']` | `chromeGlass` | also carries the shared glow; 1 px along its **right** edge |
+| Windows titlebar band | `[class*='_frame']::before` | `chromeGlass` | same fill and blur as the sidebar |
 
 Fullscreen panel shells, dialogs, code blocks and menus are excluded.
 
@@ -35,17 +36,27 @@ will composite beside a CSS-frosted band. Do not infer or promise native-caption
 from the theme tests.
 
 The user-facing request is that the **web titlebar band and sidebar read as one surface**.
-The theme applies the same fill/alpha and blur tokens to the frame pseudo-element and the
-sidebar column:
+The theme applies the same chrome-only fill/alpha and shared blur tokens to the frame
+pseudo-element and the sidebar column:
 
 | surface | fill | blur |
 | --- | --- | --- |
-| sidebar column | `rgb(var(--edge-glass-fill) / var(--edge-glass-alpha))` | `blur(var(--edge-glass-blur)) saturate(1.05)` |
-| titlebar band (`frame::before`) | same tokens | same blur token |
+| sidebar column | `rgb(var(--edge-chrome-glass-fill) / var(--edge-chrome-glass-alpha))` | `blur(var(--edge-glass-blur)) saturate(1.05)` |
+| titlebar band (`frame::before`) | same chrome tokens | same blur token |
 
 `test/chrome-glass.test.js` compares their computed fill and blur and checks that the
-band shows the patterned backdrop. These are browser-fixture assertions; they do not test
-the native caption controls.
+band shows the patterned backdrop. It also checks the independent alpha ladder and the
+modal-mask pixels. These are browser-fixture assertions; they do not test native caption
+controls.
+
+### Modal overlays dim the titlebar too
+
+DSH modal masks use `--dsh-frame-chrome-top` as their top inset, which normally skips the
+Windows caption strip. While an active host `*_mask` is mounted, the theme sets that token
+to `0px`; the existing full-viewport mask then darkens the web titlebar band along with
+the rest of the app. The modal root still blocks background interaction, while native
+caption controls remain OS-owned. The browser test compares titlebar pixels with the mask
+closed and open, rather than relying only on the computed inset.
 
 ### The collapse control belongs to the band
 
@@ -72,7 +83,7 @@ bottom edge — so both land 40px low. One cause, two reported faces:
 The shift is the band's height, not a tuned number:
 
 ```css
-html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']
+html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_frame']
   > [class$='_sidebarCol'] :is(
     button[class*='_toggle'],
     [class*='_collapsed'] button[class*='_newSession']
@@ -89,7 +100,7 @@ button's descendants be translated: the label mask, icon/content, and label are 
 controls. Ordinary CSS class selectors match an element carrying multiple classes; the
 selectors do not need to match only a bare class name.
 
-The shift is gated on `body[data-endfield-glass]`: the frosted column's backdrop filter is
+The shift is gated on `body[data-endfield-chrome-glass]`: the frosted column's backdrop filter is
 what establishes the containing block. With frost off, the host positions controls at
 its own y=6; a lingering shift would move them to y=-34. While frost is on, the controls
 paint above the column's box, so the column must also use `overflow: visible`; otherwise
@@ -147,11 +158,12 @@ ancestor.
 
 ## Why the tint is light and the blur is small
 
-| level | alpha (light / dark) |
-| --- | --- |
-| `subtle` | .30 / .30 |
-| `standard` | .42 / .40 |
-| `strong` | .52 / .52 |
+| level | composer alpha | chrome alpha |
+| --- | --- | --- |
+| `off` | — | — |
+| `subtle` | .22 | .08 |
+| `standard` | .34 | .16 |
+| `strong` | .46 | .26 |
 
 | 磨砂模糊 | radius |
 | --- | --- |
@@ -214,7 +226,7 @@ colour over it, and the two boxes read as one flat area. Clearing the *columns* 
 `_centerCol` / `_detailsCol` / `_sidebarCol` rules) cannot fix it, because a descendant
 that paints its own fill is not covered by clearing its parent.
 
-Read off the RUNNING desktop window (`PrintWindow`, dark mode, 磨砂玻璃 standard,
+Read off the RUNNING desktop window (`PrintWindow`, dark mode, 顶栏与侧栏毛玻璃 standard,
 磨砂模糊 standard):
 
 | region | painted colour | verdict |
@@ -225,13 +237,13 @@ Read off the RUNNING desktop window (`PrintWindow`, dark mode, 磨砂玻璃 stan
 So the fix is one rule, scoped exactly like the rest of the sheet:
 
 ```css
-body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root'] {
+body[data-endfield-chrome-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root'] {
   background: transparent !important;
 }
 ```
 
 It is colour-neutral by construction (the two boxes hold the same value in both
-schemes), it is gated on 磨砂玻璃 so a reader who never asked for the frost keeps the
+schemes), it is gated on `chromeGlass` so a reader who never asked for chrome frost keeps the
 host's own painting, and it is scoped to the sidebar column so the other 26 shipped
 `*_root` classes are untouched. With the frost on, the same band measures a **29.7
 luminance spread over 725 distinct colours** — the same order as the composer card on
@@ -272,36 +284,36 @@ A host rebuild that renames any of these drops the frost silently, so
 `test/glass.test.js` asserts each match is alive and fails loudly instead.
 
 Unsupported backdrop filters use a .96 opaque fill; reduced-transparency uses
-an opaque fill and removes blur. Disabling the theme removes the material
-attribute and stylesheet. Raising 磨砂玻璃 increases opacity, so the surface
-separates further from the page. Blur still has a GPU cost; this feature is not a
-performance optimization and does not promise video FPS.
+an opaque fill and removes blur. Disabling the theme removes both material
+attributes and the stylesheet. Composer and chrome opacity levels are tuned
+independently; the chrome ladder stays substantially lighter. Blur still has a GPU
+cost; this feature is not a performance optimization and does not promise video FPS.
 
 Table hover now uses a 15% accent tint over the base surface with normal text,
 while text selection retains the full accent with black text. This addresses
 issue #18 independently of whether glass is enabled.
 
 Validation: `npm run test:glass` (Node 22+, Chrome/Edge; `CHROME_PATH` supported)
-checks four light/dark × valley/Wuling combinations, opacity tiers, blur tiers, text
-contrast, reduced-transparency, fullscreen exclusion and teardown. Its chrome-related
-claims are limited to computed fill/blur equality and the tested sidebar surface/boundary;
-it does not validate native caption rendering or assert that transformed controls keep
-an unchanged rendered rectangle.
+checks four light/dark × valley/Wuling combinations, independent composer/chrome opacity
+tiers, shared blur tiers, text contrast, reduced-transparency, fullscreen exclusion and
+teardown. Its native-caption claims remain limited: the browser fixture tests only the
+web-painted band and does not assert OS caption rendering.
 
 `npm run test:chrome` uses the shipped `SidebarRoot.module.css` and `Layout.module.css`
 strings with the Windows host structure, and asserts:
 
 * the sidebar's own surface paints no fill, the column carries the blur, and the boundary
   line is an inset hairline;
-* the sidebar and titlebar band have equal computed fill/blur; screenshot pixels in the
-  band vary over the patterned backdrop;
+* the sidebar and titlebar band have equal computed fill/blur but a different alpha from
+  the composer; screenshot pixels vary over the patterned backdrop;
+* a mounted modal mask reaches y=0 and visibly dims titlebar pixels;
 * the toggle paints inside the titlebar band and has a real hit target;
-* across `frost on/off × expanded/collapsed`, the toggle stays at host y=6, the collapsed
+* across `chrome glass on/off × expanded/collapsed`, the toggle stays at host y=6, the collapsed
   new-session icon stays in the band, and the expanded new-session button remains in flow;
 * in expanded state, fish mark, HARNESS wordmark, and new-session text remain visible,
   separate, and hit-testable; in collapsed Windows state the host itself omits the brand
   and wide-only new-session label;
-* with frost off, the host's own clipping and sidebar paint return.
+* with chrome glass off, the host's own clipping and sidebar paint return.
 
 Static `check.js`/`selftest.js` also reject two selector regressions: shifting the
 expanded new-session button and matching its label/content descendants. The browser tests
