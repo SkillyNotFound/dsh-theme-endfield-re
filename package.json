@@ -1,6 +1,6 @@
 {
   "name": "dsh-theme-endfield-re",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Fork of dsh-theme-endfield (based on upstream 1.1.5): the industrial editorial look of the Arknights: Endfield official site 鈥?cream paper, ink text, signal-yellow accents, zero radius. Adds a contour centre-defocus pass (\u4e2d\u592e\u6563\u666f) and repairs the hero hooks that DSH 0.2.0-rc.2 renamed or removed.",
   "keywords": [
     "deepseek-harness",
