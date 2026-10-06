@@ -4606,32 +4606,26 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       [class*='_frame']:has(> [data-endfield-contour]) [class$='_sidebarCol'] {
         background: transparent !important;
       }
-      /* The composer seat fades content out behind the input with a gradient to
-         bg-base. Left alone it would show as an opaque band cutting across the
-         sheet, so it fades to the base colour with alpha instead — same visual
-         falloff, but the contour stays continuous underneath.
+      /* Fade the actual content at the two places where it scrolls underneath
+         fixed UI, instead of painting a dark/base-colour scrim over the content.
+         CSS masks change only the rendered alpha, so text keeps its own ink colour
+         and the underlying surface/background is not tinted.
 
-         PHASE-SCOPED, and that scoping is the fix for the hero "black band".
-         Upstream paints this gradient on the seat ONLY while a conversation is
-         live:
-             .<hash>_root[data-phase=active] .<hash>_composerSeat { ... }
-         On the empty hero page (data-phase=hero) the seat carries NO background
-         at all — but this rule used to match EVERY phase, so the theme added one.
-         A linear-gradient's LAST stop keeps painting to the end of the box, and
-         the hero seat is not the 36px sticky strip it is in a live conversation:
-         it is the whole centred hero block (headline + workspace row + composer,
-         ~240px). So 82% of --dsw-alias-bg-base flooded all of it — a solid dark
-         slab across the middle of the page in dark mode (#101110), i.e. the
-         reported "strange black band", and a slab that hides the contour sheet,
-         which is exactly what this rule was written to avoid.
-         Mirrored to upstream's own two selectors (standalone column + embedded
-         body), hash-free like the rest of the sheet. */
-      [class*='_frame']:has(> [data-endfield-contour])
-        :is([class$='_root'][data-phase='active'], [class$='_embeddedBody'][data-content-phase='active'])
-        [class$='_composerSeat'] {
-        background: linear-gradient(180deg,
-          rgba(0, 0, 0, 0) 0px,
-          color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent) 36px) !important;
+         The sidebar's regionArea ends above its separate footArea; masking its last
+         32px fades the list text at the bottom without dimming the footer controls.
+         The conversation viewArea ends directly above composerSeat; its last 36px
+         now carries the fade, while the seat itself stays transparent. Scope the
+         latter to a live conversation so the centred hero is never faded. */
+      [class$='_sidebarCol'] [class$='_regionArea'] {
+        -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 32px), transparent 100%);
+        mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 32px), transparent 100%);
+      }
+      :is([class$='_root'][data-phase='active'], [class$='_embeddedBody'][data-content-phase='active']) [class$='_viewArea'] {
+        -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 36px), transparent 100%);
+        mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 36px), transparent 100%);
+      }
+      :is([class$='_root'][data-phase='active'], [class$='_embeddedBody'][data-content-phase='active']) [class$='_composerSeat'] {
+        background: transparent !important;
       }
       /* Optional bounded frost. No full-window blur, nested filters or animation.
 

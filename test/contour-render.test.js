@@ -73,9 +73,9 @@ const MOCK = `<!doctype html><html><head><meta charset="utf-8"><style>
   .msg{font-size:15px;line-height:1.7;max-width:640px;color:var(--dsw-alias-label-primary)}
 </style></head><body><div id="root">
   <div class="pI_x6G_frame">
-    <div class="pI_x6G_sidebarCol"><div style="padding:14px">sidebar</div></div>
-    <div class="pI_x6G_centerCol"><div class="wSkVaW_root">
-      <div class="wSkVaW_viewArea">
+    <div class="pI_x6G_sidebarCol"><div class="probe_regionArea"><div style="padding:14px">sidebar</div></div></div>
+    <div class="pI_x6G_centerCol"><div class="wSkVaW_root" data-phase="active">
+      <div class="probe_viewArea wSkVaW_viewArea">
         <p class="msg" id="probe">Legibility probe paragraph sitting above the contour layer.</p>
       </div>
       <div class="wSkVaW_composerSeat"><div style="height:52px;border:1px solid var(--dsw-alias-border-l2)"></div></div>
@@ -210,6 +210,12 @@ async function main() {
     R('on: conversation bg cleared (was hiding layer)', cbgOn==='rgba(0, 0, 0, 0)', cbgOn)
     const sb=document.querySelector('.pI_x6G_sidebarCol')
     R('on: sidebar bg cleared', getComputedStyle(sb).backgroundColor==='rgba(0, 0, 0, 0)')
+    const sideMask=getComputedStyle(document.querySelector('.probe_regionArea')).maskImage
+    R('sidebar list fades with an alpha mask', /linear-gradient/.test(sideMask), sideMask)
+    const viewMask=getComputedStyle(document.querySelector('.probe_viewArea')).maskImage
+    R('conversation text fades with an alpha mask', /linear-gradient/.test(viewMask), viewMask)
+    const composerBg=getComputedStyle(document.querySelector('.wSkVaW_composerSeat')).backgroundImage
+    R('composer seat has no dark/base-colour scrim', composerBg==='none', composerBg)
     // z-order / hit-testing: the layer must never eat clicks
     R('on: layer ignores pointer events', getComputedStyle(wrap).pointerEvents==='none')
     const st=px(lines)
