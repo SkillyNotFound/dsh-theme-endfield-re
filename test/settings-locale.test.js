@@ -270,7 +270,7 @@ for (const [key, expect] of CHECKS) {
   else fail('en render is missing the copy for ' + key + ' (expected "' + expect + '")')
 }
 /* The chapter selector follows the language too, through its OWN short labels:
-   reusing the group headers' strings would put "04 ENTERTAINMENT" in a fifth of
+   reusing the group headers' strings would put "04 ENTERTAINMENT" in a sixth of
    the panel — and would trip the duplicate-latin check just below, which is what
    pins the two dictionaries apart.
 
@@ -285,9 +285,9 @@ const stripTextIn = (lang) => {
 }
 const stripZh = stripTextIn('zh')
 const stripEn = stripTextIn('en')
-if (stripZh === '主题背景动画娱乐音频') pass('zh 选择条短标签：主题 / 背景 / 动画 / 娱乐 / 音频')
+if (stripZh === '主题背景动画娱乐音频泛光') pass('zh 选择条短标签：主题 / 背景 / 动画 / 娱乐 / 音频 / 泛光')
 else fail('zh 选择条文本为 ' + JSON.stringify(stripZh))
-if (stripEn === 'ThemeBackgroundAnimationExtrasAudio') pass('en 选择条短标签：Theme / Background / Animation / Extras / Audio')
+if (stripEn === 'ThemeBackgroundAnimationExtrasAudioGlow') pass('en 选择条短标签：Theme / Background / Animation / Extras / Audio / Glow')
 else fail('en 选择条文本为 ' + JSON.stringify(stripEn))
 if (!/[0-9]/.test(stripZh) && !/[0-9]/.test(stripEn)) pass('选择条标签不带章节编号')
 else fail('选择条标签里出现了编号：' + JSON.stringify([stripZh, stripEn]))

@@ -199,10 +199,10 @@ const CASES = [
     name: "the sidebar's own surface stops being cleared (the frost goes invisible again)",
     /* The guard matches the SHAPE (glass gate + sidebar column + inner surface), not
        this exact string, so the injection has to break a part of that shape. Dropping
-       the gate is the realistic regression: the rule then also fires with 磨砂玻璃 off,
+       the gate is the realistic regression: the rule then also fires with chrome glass off,
        and a guard that accepted it would stop pinning the gate at all. */
     mutate: (s) => s.replace(
-      "body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root']",
+      "body[data-endfield-chrome-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root']",
       "[class*='_frame'] > [class$='_sidebarCol'] [class*='_root']"),
     expect: /no rule clears the sidebar's own surface/,
   },
@@ -210,15 +210,20 @@ const CASES = [
   {
     name: 'the titlebar band stops being frosted (the top bar splits off from the sidebar again)',
     mutate: (s) => s.replace(
-      "html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {",
-      "html[data-windows-titlebar] body[data-endfield-glass] [class*='_goneframe']::before {"),
+      "html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_frame']::before {",
+      "html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_goneframe']::before {"),
     expect: /no frosted titlebar-band rule/,
+  },
+  {
+    name: 'the active modal mask stops dimming the titlebar band',
+    mutate: (s) => s.replace('--dsh-frame-chrome-top: 0px !important;', '--dsh-frame-chrome-top: 40px !important;'),
+    expect: /active modal masks still exempt the Windows titlebar band/,
   },
   {
     name: 'the titlebar blur goes behind the contour sheet again',
     mutate: (s) => s.replace(
-      /(\n\s*z-index:\s*)1;(\s*\n\s*\}\s*\n\s*\/\* ---------- the titlebar controls)/,
-      (_match, before, after) => before + '0;' + after),
+      /(html\[data-windows-titlebar\] body\[data-endfield-chrome-glass\] \[class\*='_frame'\]::before \{[\s\S]*?\n\s*z-index:\s*)1;/,
+      (_match, before) => before + '0;'),
     expect: /titlebar band is still underneath the contour sheet/,
   },
   {

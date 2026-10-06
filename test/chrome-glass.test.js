@@ -16,17 +16,17 @@ const { launch } = require('./fixtures/chrome-cdp.js')
 const { chromeHtml } = require('./fixtures/host-chrome.js')
 
 const ROOT = path.resolve(__dirname, '..')
-const alphas = { subtle: 0.22, standard: 0.34, strong: 0.46 }
+const alphas = { subtle: 0.08, standard: 0.16, strong: 0.26 }
 
 /* Boot one page with the real host chrome + the theme's client bundle. */
-async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'standard', collapsed = false } = {}) {
+async function bootChrome(browser, { dark = true, glass = 'standard', chromeGlass = 'standard', blur = 'standard', collapsed = false } = {}) {
   await browser.send('Page.navigate', { url: 'data:text/html,' + encodeURIComponent(chromeHtml({ dark, collapsed })) })
   await browser.until('document.querySelector("#toggle") !== null')
   await browser.evaluate(fs.readFileSync(path.join(ROOT, 'client.js'), 'utf8'))
   const { BROWSER_SETTINGS_SCOPE_SNIPPET } = require('./fixtures/settings-scope.browser.js')
   await browser.evaluate(BROWSER_SETTINGS_SCOPE_SNIPPET + `
     window.__prefs = __endfieldSettingsScope({ enabled: '1', loader: '0', watermark: '0', contour: '1',
-      glass: ${JSON.stringify(glass)}, 'glass-blur': ${JSON.stringify(blur)} });
+      glass: ${JSON.stringify(glass)}, chromeGlass: ${JSON.stringify(chromeGlass)}, 'glass-blur': ${JSON.stringify(blur)} });
     window.__disposers = [];
     window.__MOD__.factory(() => null).apply({
       get: n => n === 'settingsScope' ? __prefs.binder : n === 'theme' ? { overrideTokens: () => () => {} } : undefined,
@@ -42,9 +42,10 @@ async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'st
       await bootChrome(browser, { dark })
       const attrs = await browser.evaluate(`JSON.stringify({
         glass: document.body.getAttribute('data-endfield-glass'),
+        chromeGlass: document.body.getAttribute('data-endfield-chrome-glass'),
         blur: document.body.getAttribute('data-endfield-glass-blur'),
         contour: document.querySelectorAll('[data-endfield-contour]').length })`)
-      assert.match(attrs, /"glass":"standard"/, 'the frost attribute must be live (chrome fixture)')
+      assert.match(attrs, /"chromeGlass":"standard"/, 'the independent chrome-glass attribute must be live')
       assert.match(attrs, /"contour":1/, 'the contour layer must be mounted: the frost is graded against it')
 
       /* THE DEFECT. The sidebar's own surface sits between the frosted column and the
@@ -58,8 +59,8 @@ async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'st
           return (s.match(/[\\d.]+/g) || []).map(Number).slice(0, 3) }
         const body = getComputedStyle(document.body)
         const base = rgb(body.getPropertyValue('--dsw-alias-bg-base'))
-        const fill = rgb(body.getPropertyValue('--edge-glass-fill'))
-        const alpha = Number(body.getPropertyValue('--edge-glass-alpha'))
+        const fill = rgb(body.getPropertyValue('--edge-chrome-glass-fill'))
+        const alpha = Number(body.getPropertyValue('--edge-chrome-glass-alpha'))
         const root = document.querySelector('#sideRoot')
         const col = document.querySelector('#sideCol')
         const s = getComputedStyle(root)
@@ -210,6 +211,51 @@ async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'st
       assert.ok(bandBlurPixels.changed > bandBlurPixels.total * 0.03,
         'titlebar blur must alter real pixels over the sharp contour sheet, not merely appear in computed CSS (' + JSON.stringify(bandBlurPixels) + ')')
 
+      /* The host modal mask normally starts below the native caption row. A mounted
+         *_mask must move that same mask to y=0 so it darkens the web-painted titlebar too. */
+      assert.equal(await browser.evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--dsh-frame-chrome-top').trim()`),
+        '40px', 'the fixture starts with the host caption exclusion')
+      await browser.evaluate(`(() => {
+        const overlay = document.createElement('div')
+        overlay.className = 'fixture_overlay'
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:1000'
+        const mask = document.createElement('div')
+        mask.className = 'fixture_mask'
+        mask.setAttribute('aria-hidden', 'true')
+        mask.style.cssText = 'position:absolute;inset:var(--dsh-frame-chrome-top,0px) 0 0;background:rgba(0,0,0,.5)'
+        overlay.append(mask)
+        const panel = document.createElement('div')
+        panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true')
+        panel.style.cssText = 'position:absolute;left:40%;top:30%;width:20%;height:30%;background:#303030'
+        overlay.append(panel); document.body.append(overlay)
+      })()`)
+      await browser.sleep(50)
+      const maskGeometry = await browser.evaluate(`(() => ({
+        chromeTop: getComputedStyle(document.documentElement).getPropertyValue('--dsh-frame-chrome-top').trim(),
+        top: getComputedStyle(document.querySelector('.fixture_mask')).top
+      }))()`)
+      assert.equal(maskGeometry.chromeTop, '0px', 'an active host modal includes the caption strip in the mask')
+      assert.equal(maskGeometry.top, '0px', 'the overlay scrim reaches the titlebar band')
+      const modalShot = (await browser.send('Page.captureScreenshot', { format: 'png' })).data
+      const modalBandDelta = await browser.evaluate(`(() => {
+        const load = b => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = 'data:image/png;base64,' + b })
+        return Promise.all([load(${JSON.stringify(shot1)}), load(${JSON.stringify(modalShot)})]).then(([a,b]) => {
+          const c=document.createElement('canvas'),x=c.getContext('2d');c.width=a.width;c.height=a.height
+          x.drawImage(a,0,0);const da=x.getImageData(0,0,c.width,c.height).data
+          x.clearRect(0,0,c.width,c.height);x.drawImage(b,0,0);const db=x.getImageData(0,0,c.width,c.height).data
+          const dpr=a.width/window.innerWidth;let changed=0,total=0
+          for(let py=Math.round(5*dpr);py<Math.round(35*dpr);py++)
+            for(let px=Math.round(60*dpr);px<Math.round(220*dpr);px++){
+              const i=(py*c.width+px)*4;total++
+              if(Math.abs(da[i]-db[i])+Math.abs(da[i+1]-db[i+1])+Math.abs(da[i+2]-db[i+2])>24)changed++
+            }
+          return {changed,total}
+        })
+      })()`)
+      assert.ok(modalBandDelta.changed > modalBandDelta.total * 0.5,
+        'opening a modal must visibly dim the titlebar band (' + JSON.stringify(modalBandDelta) + ')')
+      await browser.evaluate(`document.querySelector('.fixture_overlay').remove()`)
+
       /* THE OBSERVABLE. The frost is a translucent sheet: what is behind it has to show
          through, blurred. So the painted sidebar band must VARY -- a band that is one
          flat colour is the defect, whatever the computed styles say. Measured on the
@@ -252,16 +298,18 @@ async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'st
       }
       await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass-blur', 'standard')`)
       for (const [level, alpha] of Object.entries(alphas)) {
-        await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass', ${JSON.stringify(level)})`)
+        await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-chrome-glass', ${JSON.stringify(level)})`)
         const got = await browser.evaluate(`getComputedStyle(document.querySelector('#sideCol')).backgroundColor`)
         assert.match(got, new RegExp(String(alpha).replace('.', '\\.')), '强度=' + level + ' must set the band opacity')
+        assert.equal(await browser.evaluate(`getComputedStyle(document.body).getPropertyValue('--edge-glass-alpha').trim()`),
+          '.34', 'chrome level changes must leave composer opacity at standard')
         assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('#sideRoot')).backgroundColor`),
           'rgba(0, 0, 0, 0)', 'the sidebar surface stays clear at 强度=' + level)
       }
 
-      /* With 磨砂玻璃 off the host's own painting must come back untouched: this change
+      /* With chrome glass off the host's own painting must come back untouched: this change
          may not restyle a sidebar that never asked for the frost. */
-      await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass', 'off')`)
+      await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-chrome-glass', 'off')`)
       const off = await browser.evaluate(`(() => {
         const root = document.querySelector('#sideRoot'), col = document.querySelector('#sideCol')
         return { rootBg: getComputedStyle(root).backgroundColor, colFilter: getComputedStyle(col).backdropFilter,
@@ -316,9 +364,9 @@ async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'st
        was only applied to the collapse control). One assertion per state, because each
        state has been wrong on its own at some point. */
     for (const dark of [true, false]) {
-      for (const glass of dark ? ['standard', 'off'] : ['standard']) {
+      for (const chromeGlass of dark ? ['standard', 'off'] : ['standard']) {
         for (const collapsed of [false, true]) {
-          await bootChrome(browser, { dark, glass, collapsed })
+          await bootChrome(browser, { dark, chromeGlass, collapsed })
           const state = await browser.evaluate(`(() => {
             const frame = document.querySelector('#frame').getBoundingClientRect()
             const cs = getComputedStyle(document.documentElement)
@@ -343,7 +391,7 @@ async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'st
                      collapseHit: hit('#toggle'), newSessionHit: hit('#newSession'),
                      colOverflow: getComputedStyle(document.querySelector('#sideCol')).overflow }
           })()`)
-          const tag = 'dark=' + dark + ' glass=' + glass + ' collapsed=' + collapsed
+          const tag = 'dark=' + dark + ' chromeGlass=' + chromeGlass + ' collapsed=' + collapsed
           assert.ok(state.collapse.inBand && state.collapse.visible,
             'the collapse control must sit inside the titlebar band and be visible (' + tag + '): ' + JSON.stringify(state.collapse))
           if (collapsed) {
@@ -367,7 +415,7 @@ async function bootChrome(browser, { dark = true, glass = 'standard', blur = 'st
           }
           /* The un-gated shift is what made the collapse control disappear with the frost
              off: it moves both controls 40px up, off the top of the window. */
-          if (glass === 'off') {
+          if (chromeGlass === 'off') {
             assert.equal(state.collapse.y, 6, 'with the frost off the collapse control must land at the host\'s own y=6 (' + tag + ')')
             assert.equal(state.colOverflow, 'hidden', 'with the frost off the host\'s own clipping must come back (' + tag + ')')
           } else {

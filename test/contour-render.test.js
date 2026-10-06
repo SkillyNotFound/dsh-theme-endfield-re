@@ -96,9 +96,16 @@ const mod=window.__MOD__.factory(()=>null)
    the probe block below can flip switches via setItem() like the settings row
    does. Nothing is seeded for the contour switches on purpose: the probe's first
    phase runs against the SHIPPED DEFAULTS (background on, motion off), and the
-   later phases state each switch explicitly. */
+   later phases state each switch explicitly.
+
+   loader / chromeGlass / bottomGlow are pinned OFF because they are ON by default
+   and each one repaints the app on its own account: phase 1 asserts that switching
+   the CONTOUR layer off gives the app's own opaque painting back, which can only be
+   observed while no other default-on feature is clearing a background. The bottom
+   glow in particular clears the conversation root's fill (its layer needs to show
+   through) whether or not the contour sheet is drawn. */
 ${BROWSER_SETTINGS_SCOPE_SNIPPET}
-var __prefs=__endfieldSettingsScope({ enabled:'1', loader:'0' })
+var __prefs=__endfieldSettingsScope({ enabled:'1', loader:'0', chromeGlass:'off', bottomGlow:'off' })
 window.__LS__=__prefs
 const ctx={
   get:(n)=>n==='theme'?{overrideTokens:()=>()=>{}}:(n==='settingsScope'?__prefs.binder:undefined),

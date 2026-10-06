@@ -129,17 +129,19 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       palette: 'valley',
       radius: 'square',
       glass: 'off',
+      chromeGlass: 'standard',
       /* 磨砂模糊 (glass blur) — the radius the frost defocuses by, sold separately from
          the level above because the two answer different questions: the level is how
-         much tint, this is how much defocus. Shipped at 'standard' = 5px, which keeps
-         a 1-2px contour stroke readable through the glass; see the note in the
-         stylesheet for why the range stops at 10px. */
+         much tint, this is how much defocus. Shipped at 'standard' = 4px, which keeps
+         a 1-2px contour stroke readable through the glass; the range tops out at 8px. */
       glassBlur: 'standard',
       /* 输入框泛光 (composer bloom) — the rectangle of light behind the composer
          card on the empty-conversation page. Shipped at 'standard', i.e. the
          strength the hero had before this became a row; 'off' removes the
          pseudo-element entirely rather than painting a transparent one. */
       composerGlow: 'standard',
+       bottomGlow: 'standard',
+       bottomGlowDispersion: '1',
       /* 中央散景 (contour centre bokeh). Two named strengths rather than raw pixel
          values, for the same reason the frost layer uses names: the interesting
          numbers are not independent — the ellipse has to grow with the blur or the
@@ -217,8 +219,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       'dsh-theme-endfield-palette': 'palette',
       'dsh-theme-endfield-radius': 'radius',
       'dsh-theme-endfield-glass': 'glass',
+      'dsh-theme-endfield-chrome-glass': 'chromeGlass',
       'dsh-theme-endfield-glass-blur': 'glassBlur',
       'dsh-theme-endfield-composer-glow': 'composerGlow',
+       'dsh-theme-endfield-bottom-glow': 'bottomGlow',
+       'dsh-theme-endfield-bottom-glow-dispersion': 'bottomGlowDispersion',
       'dsh-theme-endfield-bokeh': 'bokeh',
       'dsh-theme-endfield-bokeh-wash': 'bokehWash',
       'dsh-theme-endfield-contour': 'contour',
@@ -1179,10 +1184,15 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       const value = prefsGet(GLASS_KEY)
       return GLASS_OPTIONS.includes(value) ? value : 'off'
     }
-    /* 磨砂模糊 — the blur radius knob. It is independent of the level above on purpose:
-       the level carries opacity, this carries defocus. They were one control, and the
-       result was that the only way to get a tint that still showed the contour also gave
-       you a radius that erased it. */
+    const CHROME_GLASS_KEY = 'dsh-theme-endfield-chrome-glass'
+    const CHROME_GLASS_OPTIONS = GLASS_OPTIONS
+    const readChromeGlass = () => {
+      const value = prefsGet(CHROME_GLASS_KEY)
+      return CHROME_GLASS_OPTIONS.includes(value) ? value : 'standard'
+    }
+    /* 磨砂模糊 — shared blur radius knob. Opacity remains independent: `glass` controls
+       the composer, `chromeGlass` controls the sidebar/titlebar, and this applies only
+       while at least one of those surfaces is enabled. */
     const GLASS_BLUR_KEY = 'dsh-theme-endfield-glass-blur'
     const GLASS_BLUR_OPTIONS = ['off', 'soft', 'standard', 'heavy']
     const readGlassBlur = () => {
@@ -1191,14 +1201,17 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     }
     const syncGlass = () => {
       if (typeof document === 'undefined' || document.body === null) return
-      const value = readGlass()
-      if (isEnabled() && value !== 'off') {
-        document.body.setAttribute?.('data-endfield-glass', value)
+      const composer = readGlass()
+      const chrome = readChromeGlass()
+      if (isEnabled() && composer !== 'off')
+        document.body.setAttribute?.('data-endfield-glass', composer)
+      else document.body.removeAttribute?.('data-endfield-glass')
+      if (isEnabled() && chrome !== 'off')
+        document.body.setAttribute?.('data-endfield-chrome-glass', chrome)
+      else document.body.removeAttribute?.('data-endfield-chrome-glass')
+      if (isEnabled() && (composer !== 'off' || chrome !== 'off'))
         document.body.setAttribute?.('data-endfield-glass-blur', readGlassBlur())
-      } else {
-        document.body.removeAttribute?.('data-endfield-glass')
-        document.body.removeAttribute?.('data-endfield-glass-blur')
-      }
+      else document.body.removeAttribute?.('data-endfield-glass-blur')
     }
     /* ---------- 输入框泛光 (composer bloom) ----------
        The rectangle of light behind the composer card on the start page, and how
@@ -1234,7 +1247,15 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        unrecognised stored value (schema rejects, hand-edited YAML, a level removed
        in a later version) falls back to the shipped default instead of silently
        turning the effect off. */
-    const BOKEH_KEY = 'dsh-theme-endfield-bokeh'
+    const BOTTOM_GLOW_KEY = 'dsh-theme-endfield-bottom-glow'
+     const BOTTOM_GLOW_DISPERSION_KEY = 'dsh-theme-endfield-bottom-glow-dispersion'
+     const BOTTOM_GLOW_OPTIONS = ['off', 'soft', 'standard', 'strong']
+     const readBottomGlow = () => {
+       const value = prefsGet(BOTTOM_GLOW_KEY)
+       return BOTTOM_GLOW_OPTIONS.includes(value) ? value : 'standard'
+     }
+     const isBottomGlowDispersionOn = () => prefsGet(BOTTOM_GLOW_DISPERSION_KEY) !== '0'
+     const BOKEH_KEY = 'dsh-theme-endfield-bokeh'
     const BOKEH_WASH_KEY = 'dsh-theme-endfield-bokeh-wash'
     const BOKEH_OPTIONS = ['off', 'subtle', 'standard', 'strong']
     const BOKEH_ATTR = 'data-endfield-bokeh'
@@ -1270,6 +1291,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
          from the settings panel, which can mount before the contour module has wired
          itself, and the hook is a no-op until it has. */
       contourSyncHook()
+       syncBottomGlowMount()
       if (contourWrap !== null) contourRefresh(false)
     }
     const syncRadiusMode = () => {
@@ -1358,7 +1380,173 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       return null
     }
-    /* TWO generations of the hero headline have to be understood here, because the
+    let bottomGlowEl = null
+    let bottomGlowHost = null
+    let bottomGlowRunning = null
+    const BOTTOM_GLOW_SOURCE_COUNT = 30
+    let bottomGlowSources = []
+    let bottomGlowResizeAttached = false
+    let bottomGlowAnchorObserver = null
+    let bottomGlowAnchorCheckAt = 0
+    let bottomGlowAnchorCenter = null
+    let bottomGlowAnchorSpan = null
+    const glowRandomBetween = (min, max, decimals = 1) => Number((min + Math.random() * (max - min)).toFixed(decimals))
+    const setGlowSourceVariable = (source, name, value) => {
+      if (source && source.style && typeof source.style.setProperty === 'function') source.style.setProperty(name, String(value))
+    }
+    const getBottomGlowAnchor = () => {
+      if (!bottomGlowHost) return null
+      if (typeof bottomGlowHost.querySelector === 'function') {
+        return bottomGlowHost.querySelector('[data-composer-card]')
+          || bottomGlowHost.querySelector("[class$='_composerSeat']")
+          || bottomGlowHost
+      }
+      return bottomGlowHost
+    }
+    const createBottomGlowSource = () => {
+      const source = document.createElement('span')
+      source.setAttribute('data-endfield-glow-source', '')
+      const set = (name, value) => setGlowSourceVariable(source, name, value)
+      source.__endfieldIdleOffset = glowRandomBetween(-0.5, 0.5, 3)
+      source.__endfieldRunningX = glowRandomBetween(1, 99)
+      set('--glow-source-x', '50%')
+      set('--glow-source-width', glowRandomBetween(220, 580) + 'px')
+      set('--glow-source-height-idle', glowRandomBetween(65, 115) + 'px')
+      set('--glow-source-height-running', glowRandomBetween(150, 230) + 'px')
+      set('--glow-source-tint', glowRandomBetween(5, 86) + '%')
+      set('--glow-source-opacity-low', glowRandomBetween(0.18, 0.34, 2))
+      set('--glow-source-opacity-high', glowRandomBetween(0.58, 0.92, 2))
+      set('--glow-source-duration-idle', glowRandomBetween(3.5, 7) + 's')
+      set('--glow-source-duration-running', glowRandomBetween(1.8, 3.4) + 's')
+      set('--glow-source-delay', '-' + glowRandomBetween(0, 7) + 's')
+      set('--glow-source-scale-low', glowRandomBetween(0.72, 0.9, 2))
+      set('--glow-source-scale-high', glowRandomBetween(1.14, 1.3, 2))
+      return source
+    }
+    const positionBottomGlowSources = (running, force = false) => {
+      if (bottomGlowSources.length === 0) return
+      if (running) {
+        for (const source of bottomGlowSources) setGlowSourceVariable(source, '--glow-source-x', source.__endfieldRunningX + '%')
+        return
+      }
+      const now = Date.now()
+      if (!force && now - bottomGlowAnchorCheckAt < 350) return
+      bottomGlowAnchorCheckAt = now
+      const viewportWidth = typeof window !== 'undefined' && window.innerWidth > 0
+        ? window.innerWidth
+        : (document.documentElement && document.documentElement.clientWidth) || 1440
+      const anchor = getBottomGlowAnchor()
+      const rect = anchor && typeof anchor.getBoundingClientRect === 'function' ? anchor.getBoundingClientRect() : null
+      const dialogCenter = rect && rect.width > 0 ? ((rect.left + rect.width / 2) / viewportWidth) * 100 : 50
+      const idleSpan = rect && rect.width > 0 ? Math.max(26, Math.min(58, (rect.width / viewportWidth) * 75)) : 40
+      if (!force && bottomGlowAnchorCenter !== null && Math.abs(dialogCenter - bottomGlowAnchorCenter) < 0.15
+          && bottomGlowAnchorSpan !== null && Math.abs(idleSpan - bottomGlowAnchorSpan) < 0.15) return
+      bottomGlowAnchorCenter = dialogCenter
+      bottomGlowAnchorSpan = idleSpan
+      for (const source of bottomGlowSources) {
+        const x = Math.max(1, Math.min(99, dialogCenter + source.__endfieldIdleOffset * idleSpan))
+        setGlowSourceVariable(source, '--glow-source-x', x + '%')
+      }
+    }
+    const syncBottomGlowRunning = (running) => {
+      const previous = bottomGlowRunning
+      bottomGlowRunning = running === true ? true : (running === false ? false : null)
+      if (bottomGlowEl) {
+        if (bottomGlowRunning === null) bottomGlowEl.removeAttribute?.('data-running')
+        else bottomGlowEl.setAttribute?.('data-running', bottomGlowRunning ? 'true' : 'false')
+      }
+      if (previous !== bottomGlowRunning && bottomGlowRunning !== null) positionBottomGlowSources(bottomGlowRunning, true)
+    }
+    const syncBottomGlowResize = () => {
+      if (bottomGlowEl) positionBottomGlowSources(bottomGlowRunning === true, true)
+    }
+    const syncBottomGlowTransitionEnd = (event) => {
+      if (bottomGlowEl && bottomGlowRunning !== true
+          && ['transform', 'width', 'grid-template-columns', 'left', 'right'].includes(event && event.propertyName)) {
+        positionBottomGlowSources(false, true)
+      }
+    }
+    const syncBottomGlowMount = () => {
+      const wanted = isEnabled() && readBottomGlow() !== 'off'
+      let root = null
+      if (wanted && typeof document !== 'undefined' && typeof document.querySelector === 'function') {
+        root = document.querySelector('[class$="_root"][data-phase="active"]')
+      }
+      if (root && bottomGlowEl && root === bottomGlowHost && bottomGlowEl.parentNode === root) {
+        if (bottomGlowRunning !== true) positionBottomGlowSources(false)
+        if (isBottomGlowDispersionOn()) bottomGlowEl.setAttribute('data-dispersion', 'true')
+        else bottomGlowEl.removeAttribute('data-dispersion')
+        return
+      }
+      if (root) {
+        const rect = root.getBoundingClientRect()
+        if (!(rect.width > 0 && rect.height > 0)) root = null
+      }
+      if (!root) {
+        if (bottomGlowEl && bottomGlowEl.parentNode) bottomGlowEl.parentNode.removeChild(bottomGlowEl)
+        bottomGlowEl = null
+        bottomGlowHost = null
+        bottomGlowSources = []
+        bottomGlowAnchorCenter = null
+        bottomGlowAnchorSpan = null
+        if (bottomGlowAnchorObserver) { bottomGlowAnchorObserver.disconnect(); bottomGlowAnchorObserver = null }
+        if (bottomGlowResizeAttached && typeof window !== 'undefined') {
+          window.removeEventListener('resize', syncBottomGlowResize)
+          window.removeEventListener('transitionend', syncBottomGlowTransitionEnd, true)
+          bottomGlowResizeAttached = false
+        }
+        return
+      }
+      let geometryChanged = false
+      if (!bottomGlowEl) {
+        const el = document.createElement('div')
+        el.setAttribute('data-endfield-bottom-glow-layer', '')
+        el.setAttribute('aria-hidden', 'true')
+        bottomGlowSources = []
+        for (let i = 0; i < BOTTOM_GLOW_SOURCE_COUNT; i++) {
+          const source = createBottomGlowSource()
+          bottomGlowSources.push(source)
+          el.appendChild(source)
+        }
+        bottomGlowEl = el
+        geometryChanged = true
+      }
+      if (bottomGlowHost !== root || bottomGlowEl.parentNode !== root) {
+        root.appendChild(bottomGlowEl)
+        bottomGlowHost = root
+        geometryChanged = true
+      }
+      syncBottomGlowRunning(bottomGlowRunning)
+      if (geometryChanged) {
+        bottomGlowAnchorCenter = null
+        bottomGlowAnchorSpan = null
+        positionBottomGlowSources(bottomGlowRunning === true, true)
+        if (bottomGlowAnchorObserver) bottomGlowAnchorObserver.disconnect()
+        if (typeof ResizeObserver === 'function') {
+          bottomGlowAnchorObserver = new ResizeObserver(syncBottomGlowResize)
+          bottomGlowAnchorObserver.observe(root)
+          const anchor = getBottomGlowAnchor()
+          if (anchor && anchor !== root) bottomGlowAnchorObserver.observe(anchor)
+        }
+      }
+      if (!bottomGlowResizeAttached && typeof window !== 'undefined') {
+        window.addEventListener('resize', syncBottomGlowResize)
+        window.addEventListener('transitionend', syncBottomGlowTransitionEnd, true)
+        bottomGlowResizeAttached = true
+      }
+      if (isBottomGlowDispersionOn()) bottomGlowEl.setAttribute('data-dispersion', 'true')
+      else bottomGlowEl.removeAttribute('data-dispersion')
+    }
+     const syncBottomGlow = () => {
+       if (typeof document === 'undefined' || document.body === null) return
+       const value = readBottomGlow()
+       if (isEnabled() && value !== 'off') document.body.setAttribute?.('data-endfield-bottom-glow', value)
+       else document.body.removeAttribute?.('data-endfield-bottom-glow')
+       if (isEnabled() && isBottomGlowDispersionOn()) document.body.setAttribute?.('data-endfield-bottom-glow-dispersion', 'true')
+       else document.body.removeAttribute?.('data-endfield-bottom-glow-dispersion')
+       syncBottomGlowMount()
+     }
+     /* TWO generations of the hero headline have to be understood here, because the
        mark is only ever placed by MEASURING it (see positionWatermark):
          <= 0.1.x        the headline TEXT span carried the class '*_headlineText'
          >= 0.2.0-rc.2   HeroShell renamed it: the flex ROW is '*_headline' and the
@@ -1601,6 +1789,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         // fires on every DOM change on the page, including every streaming token,
         // so the hook's first act is an O(1) "still attached?" check.
         contourSyncHook()
+       syncBottomGlowMount()
       })
       watermarkObserver.observe(document.body, { childList: true, subtree: true })
     }
@@ -1609,6 +1798,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       if (watermarkObserver === null) return
       syncWatermarkVisibility()
       contourSyncHook()
+       syncBottomGlowMount()
     }
     if (typeof document !== 'undefined' && document.body !== null) installWatermarkObserver()
     else if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
@@ -3794,6 +3984,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       thunderWatchedId = null
       thunderLastRunning = null
+      syncBottomGlowRunning(null)
     }
     /** Subscribe to selection changes once; idempotent. */
     const thunderSubscribeList = (sessions) => {
@@ -3857,6 +4048,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       thunderWatchedId = id
       thunderLastRunning = thunderReadRunning(face)
+       syncBottomGlowRunning(thunderLastRunning)
       let unsub = null
       try {
         unsub = face.subscribe(() => {
@@ -3864,6 +4056,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
           if (next === null || next === thunderLastRunning) return
           const prev = thunderLastRunning
           thunderLastRunning = next
+           syncBottomGlowRunning(next)
           // First readable value is the baseline, not an edge — see the note above.
           if (prev === null) return
           showThunder(next ? THUNDER_START : THUNDER_DONE)
@@ -3887,7 +4080,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
        the contour layer's rule — an off switch must not leave a listener behind that
        wakes on every streamed token just to return early. */
     const syncThunder = () => {
-      if (!(isEnabled() && isThunderOn())) {
+      if (!(isEnabled() && (isThunderOn() || readBottomGlow() !== 'off'))) {
         thunderStopWatch()
         destroyThunder()
         return
@@ -4479,12 +4672,26 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         --edge-glass-edge: rgb(255 255 255 / .18);
         --edge-glass-sheen: rgb(255 255 255 / .07);
       }
-      /* Raising the level raises how much of that fill covers the page. The spread stops
-         well short of opaque: past ~.5 the contour stops reading through the glass. */
+      /* Composer glass keeps its original tint range. Chrome has its own lower-opacity
+         ladder: even its strongest setting stays lighter than the composer's standard. */
       body[data-endfield-glass='subtle'] { --edge-glass-alpha: .22; }
       body[data-endfield-glass='strong'] { --edge-glass-alpha: .46; }
       body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .22; }
       body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .46; }
+      body[data-endfield-chrome-glass] {
+        --edge-chrome-glass-fill: 92 98 89;
+        --edge-chrome-glass-alpha: .16;
+        --edge-glass-blur: 4px;
+        --edge-chrome-glass-edge: rgb(255 255 255 / .65);
+        --edge-chrome-glass-sheen: rgb(255 255 255 / .35);
+      }
+      body[data-endfield-chrome-glass][data-ds-dark-theme] {
+        --edge-chrome-glass-fill: 124 138 133;
+        --edge-chrome-glass-edge: rgb(255 255 255 / .18);
+        --edge-chrome-glass-sheen: rgb(255 255 255 / .07);
+      }
+      body[data-endfield-chrome-glass='subtle'] { --edge-chrome-glass-alpha: .08; }
+      body[data-endfield-chrome-glass='strong'] { --edge-chrome-glass-alpha: .26; }
       /* 磨砂模糊 (glass blur). Owns the radius for every surface, so the level above can
          stay about opacity alone. 'off' is 0, not a removed attribute: the frost stays,
          it just stops defocusing what is behind it.
@@ -4540,11 +4747,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         --dsw-elevation-stroke-color: var(--edge-glass-edge);
       }
       /* The sidebar column takes the frost AND the glow, on itself. */
-      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
-        background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha)) !important;
+      body[data-endfield-chrome-glass] [class*='_frame'] > [class$='_sidebarCol'] {
+        background-color: rgb(var(--edge-chrome-glass-fill) / var(--edge-chrome-glass-alpha)) !important;
         -webkit-backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
-        box-shadow: inset -1px 0 0 var(--edge-glass-edge);
+        box-shadow: inset -1px 0 0 var(--edge-chrome-glass-edge);
         /* Keep the sidebar stack above the titlebar pseudo so its viewport-fixed
            controls (z-index:30, but inside this filtered stacking context) remain clickable. */
         z-index: 2;
@@ -4572,11 +4779,11 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
          -- it only stops the opaque layer from sitting between the frost and the page.
          Verified live geometry: sidebar 240px, matches the column width.
 
-         SCOPED TO THE GLASS ROW so a user with 磨砂玻璃 off keeps the host's own
+         SCOPED TO THE CHROME GLASS ROW so a user with chrome glass off keeps the host's own
          painting untouched, and to the sidebar column so no other '_root' (27 of them
          ship) is affected. Same '[class*=_root]' substring the rest of this sheet uses:
          the suffix in the column is '_root' either as module_export or export_hash_line. */
-      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root'] {
+      body[data-endfield-chrome-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root'] {
         background: transparent !important;
       }
       /* ---------- the titlebar band is the same material -------------------------------
@@ -4591,16 +4798,24 @@ caption controls composite beside this CSS band. Browser tests cover web surface
          element (it is read as document.documentElement.hasAttribute(...) and its CSS
          is written html[data-windows-titlebar] ...). A body-scoped copy never matches,
          which silently drops every line here. */
-      html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
-        background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha));
+      html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_frame']::before {
+        background-color: rgb(var(--edge-chrome-glass-fill) / var(--edge-chrome-glass-alpha));
         -webkit-backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
-        box-shadow: inset 0 -1px 0 var(--edge-glass-edge);
+        box-shadow: inset 0 -1px 0 var(--edge-chrome-glass-edge);
         /* The contour sheet is z-index:0 and paints after the host's ::before by default.
            Without an explicit level it sits ON TOP of this blur, so the computed filter
            is present but the titlebar shows sharp contour lines. Raise only the band
            above that sheet; the fixed controls already own z-index:30. */
         z-index: 1;
+      }
+      /* DSH modal masks intentionally start below the native caption strip by reading
+         --dsh-frame-chrome-top. The settings panel mounts a full-viewport .<hash>_mask
+         only while open; setting the host token to zero in that state lets the same mask
+         dim our web-painted titlebar band along with the rest of the app. The mask root
+         still owns pointer blocking; native caption controls remain OS-owned. */
+      html[data-windows-titlebar]:has([class$='_mask']) {
+        --dsh-frame-chrome-top: 0px !important;
       }
       /* ---------- the titlebar controls belong to the band ----------------------------
          MEASURED DEFECT. The host declares these as VIEWPORT-fixed controls:
@@ -4644,7 +4859,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
          grid animation the column's background already covers. What is NOT safe is
          clip-path instead of removing it -- that clips the controls too, which is the
          same defect wearing a different property. */
-      html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']
+      html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_frame']
         > [class$='_sidebarCol'] {
         overflow: visible;
       }
@@ -4653,7 +4868,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
          box up to y=54 over the brand (the logo-loss regression). Its label/content are
          descendants, not controls, and must never be transformed separately. The toggle
          remains fixed in both states; new-session is fixed only below the collapsed root. */
-      html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']
+      html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_frame']
         > [class$='_sidebarCol'] :is(button[class*='_toggle'], [class*='_collapsed'] button[class*='_newSession']) {
         transform: translateY(calc(-1 * var(--dsh-windows-titlebar-height)));
       }
@@ -4673,19 +4888,19 @@ caption controls composite beside this CSS band. Browser tests cover web surface
          Keep the subtle white specular sheen local to each glass face; it is not a second
          yellow glow. The band's colour remains the frost fill above. Native caption
          appearance is separate; this stylesheet does not assert how the OS renders it. */
-      body[data-endfield-glass] [class*='_frame']:has(> [data-endfield-contour])
+      body[data-endfield-chrome-glass] [class*='_frame']:has(> [data-endfield-contour])
         > [data-endfield-contour] {
         background-image: radial-gradient(ellipse 42% 32% at 0% 2%,
           color-mix(in srgb, var(--edge-accent) 14%, transparent), transparent 76%);
       }
-      body[data-endfield-glass] [class*='_frame']:has(> [data-endfield-contour])
+      body[data-endfield-chrome-glass] [class*='_frame']:has(> [data-endfield-contour])
         > [class$='_sidebarCol'] {
-        background-image: linear-gradient(135deg, var(--edge-glass-sheen), transparent 62%) !important;
+        background-image: linear-gradient(135deg, var(--edge-chrome-glass-sheen), transparent 62%) !important;
       }
-      html[data-windows-titlebar] body[data-endfield-glass]
+      html[data-windows-titlebar] body[data-endfield-chrome-glass]
         [class*='_frame']:has(> [data-endfield-contour])::before {
         background-image: linear-gradient(135deg,
-          color-mix(in srgb, var(--edge-glass-sheen) 70%, transparent), transparent 42%);
+          color-mix(in srgb, var(--edge-chrome-glass-sheen) 70%, transparent), transparent 42%);
       }
       /* Keep the host's logo row geometry intact. On Windows it begins below the
          titlebar; the collapse control is at y=6 in the separate titlebar band, while
@@ -4693,23 +4908,27 @@ caption controls composite beside this CSS band. Browser tests cover web surface
          the logo row was based on a mistaken vertical-overlap diagnosis and needlessly
          shifted the mark and wordmark to the right. */
       @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-        /* No backdrop filter: the tint has to carry the whole material, so use a nearly
-           opaque fill rather than a translucent one that would let text show through. */
+        /* No backdrop filter: each surface's own tint has to carry the whole material. */
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
-          [data-dockkit-host='dock'] > [class*='_tabHost'],
-        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
-        html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
+          [data-dockkit-host='dock'] > [class*='_tabHost'] {
           background-color: rgb(var(--edge-glass-fill) / .96) !important;
+        }
+        body[data-endfield-chrome-glass] [class*='_frame'] > [class$='_sidebarCol'],
+        html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_frame']::before {
+          background-color: rgb(var(--edge-chrome-glass-fill) / .96) !important;
         }
       }
       @media (prefers-reduced-transparency: reduce) {
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
-          [data-dockkit-host='dock'] > [class*='_tabHost'],
-        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
-        html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
+          [data-dockkit-host='dock'] > [class*='_tabHost'] {
           background-color: rgb(var(--edge-glass-fill)) !important;
+          -webkit-backdrop-filter: none; backdrop-filter: none;
+        }
+        body[data-endfield-chrome-glass] [class*='_frame'] > [class$='_sidebarCol'],
+        html[data-windows-titlebar] body[data-endfield-chrome-glass] [class*='_frame']::before {
+          background-color: rgb(var(--edge-chrome-glass-fill)) !important;
           -webkit-backdrop-filter: none; backdrop-filter: none;
         }
       }
@@ -5349,7 +5568,57 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       body[data-endfield-glow='soft'] { --edge-glow-level: 0.5; }
       body[data-endfield-glow='standard'] { --edge-glow-level: 1; }
       body[data-endfield-glow='strong'] { --edge-glow-level: 1.75; }
-      /* Brand wordmark HARNESS chip: signal-yellow box + black letters (both modes) */
+      /* conversation bottom glow: 30 broad, cheap radial sources. The viewport-wide
+         transparent sheet has no side mask/edge; only source positions change. */
+      body[data-endfield-bottom-glow] { --endfield-bottom-glow-accent: #fff500; }
+      body.theme-endfield-wuling[data-endfield-bottom-glow] { --endfield-bottom-glow-accent: #14d0d0; }
+      [class$='_root']:has(> [data-endfield-bottom-glow-layer]) {
+        position: relative; z-index: 0; background: transparent !important;
+      }
+      [data-endfield-bottom-glow-layer] {
+        position: fixed; z-index: -1; left: 0; right: 0; bottom: 0;
+        height: clamp(150px, 22vh, 250px); overflow: visible; pointer-events: none;
+        mix-blend-mode: lighten; opacity: var(--endfield-bottom-glow-opacity, .42);
+      }
+      [data-endfield-bottom-glow-layer][data-running='true'] {
+        height: clamp(260px, 40vh, 420px);
+      }
+      [data-endfield-glow-source] {
+        --endfield-glow-source-color: color-mix(in srgb, var(--endfield-bottom-glow-accent, #fff500) calc(100% - var(--glow-source-tint)), #fff var(--glow-source-tint));
+        position: absolute; left: var(--glow-source-x); bottom: 0;
+        display: block; width: var(--glow-source-width); height: var(--glow-source-height-idle);
+        transform: translateX(-50%) scale(.9); transform-origin: center bottom;
+        opacity: .3; pointer-events: none;
+        background: radial-gradient(ellipse 44% 95% at 50% 100%,
+          color-mix(in srgb, var(--endfield-glow-source-color) 58%, transparent) 0%,
+          color-mix(in srgb, var(--endfield-glow-source-color) 31%, transparent) 36%,
+          color-mix(in srgb, var(--endfield-glow-source-color) 12%, transparent) 63%,
+          transparent 100%);
+        transition: left 420ms cubic-bezier(.2,.75,.25,1);
+        animation: endfield-center-glow-breathe var(--glow-source-duration-idle) var(--glow-source-delay) ease-in-out infinite;
+      }
+      [data-endfield-bottom-glow-layer][data-running='true'] [data-endfield-glow-source] {
+        height: var(--glow-source-height-running);
+        animation-duration: var(--glow-source-duration-running);
+      }
+      [data-endfield-bottom-glow-layer][data-dispersion='true'] [data-endfield-glow-source] {
+        background-image: radial-gradient(ellipse 44% 95% at 50% 100%,
+          color-mix(in srgb, var(--endfield-glow-source-color) 66%, transparent) 0%,
+          color-mix(in srgb, var(--endfield-glow-source-color) 34%, transparent) 39%,
+          transparent 100%);
+      }
+      body[data-endfield-bottom-glow='soft'] { --endfield-bottom-glow-opacity: .24; }
+      body[data-endfield-bottom-glow='standard'] { --endfield-bottom-glow-opacity: .42; }
+      body[data-endfield-bottom-glow='strong'] { --endfield-bottom-glow-opacity: .62; }
+      @keyframes endfield-center-glow-breathe {
+        0%, 100% { opacity: var(--glow-source-opacity-low); transform: translateX(-50%) scale(var(--glow-source-scale-low)); }
+        50% { opacity: var(--glow-source-opacity-high); transform: translateX(-50%) scale(var(--glow-source-scale-high)); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        [data-endfield-glow-source] { animation: none !important; }
+        [data-endfield-glow-source] { transition: none !important; }
+      }
+       /* Brand wordmark HARNESS chip: signal-yellow box + black letters (both modes) */
       body {
         --dsw-alias-label-primary-inverted: #101110;
       }
@@ -6048,13 +6317,15 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       syncRadiusMode()
       syncGlass()
       syncComposerGlow()
+       syncBottomGlow()
       syncBokeh()
       syncPaletteClass()
     }
     const unmount = () => {
       if (!mounted) return
       mounted = false
-      disposeToken()
+      syncBottomGlow()
+       disposeToken()
       disposeStyles()
       disposeToken = () => {}
       disposeStyles = () => {}
@@ -6067,6 +6338,8 @@ caption controls composite beside this CSS band. Browser tests cover web surface
            stored preference is untouched, so re-enabling restores it. */
         document.body.classList.remove(PALETTE_CLASS)
         document.body.removeAttribute?.('data-endfield-glass')
+        document.body.removeAttribute?.('data-endfield-chrome-glass')
+        document.body.removeAttribute?.('data-endfield-glass-blur')
         // Both bokeh attributes go with the stylesheet that gives them meaning,
         // the same way the frost attribute does.
         document.body.removeAttribute?.(BOKEH_ATTR)
@@ -6133,6 +6406,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
         syncRadiusMode()
         syncGlass()
         syncComposerGlow()
+       syncBottomGlow()
         syncBokeh()
         syncPaletteClass()
         syncWatermarkVisibility()
@@ -6180,7 +6454,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       groupAnim: '动画',
       groupFun: '娱乐',
       /* The chapter selector's segment labels. SHORT by design: a segment is a
-         fifth of the panel, so the full editorial name (and, under English, the
+         sixth of the panel, so the full editorial name (and, under English, the
          all-caps latin line) would be clipped there. The full name stays the
          segment's tooltip and the chapter header's own text. */
       tabTheme: '主题',
@@ -6218,10 +6492,11 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       contourAnimHintOn: '等高线缓慢流动变形（可选 24 / 60 / 120 FPS，关闭后为静态图案）',
       contourAnimHintOff: '静态等高线，不做任何逐帧计算',
       contourAnimHintReduced: '系统已开启「减少动态效果」，当前保持静态',
-      glassRow: '磨砂玻璃', glassHint: '输入框、左侧栏与顶栏共用同一质感；透明度随之变化',
+      glassRow: '输入框毛玻璃', glassHint: '只影响输入框；透明度与顶栏、侧栏分别设置',
+       chromeGlassRow: '顶栏与侧栏毛玻璃', chromeGlassHint: '只影响窗口顶栏和左侧栏；默认比输入框更透',
       glassOff: '关闭', glassSubtle: '轻度', glassStandard: '标准', glassStrong: '浓厚',
-      glassBlurRow: '磨砂模糊', glassBlurHint: '模糊半径，越大越糊；等高线在 3px 以内最清晰',
-      glassBlurHintOff: '需先开启磨砂玻璃',
+      glassBlurRow: '磨砂模糊', glassBlurHint: '对已开启的毛玻璃表面生效；模糊半径越大越糊',
+      glassBlurHintOff: '请先开启输入框或顶栏/侧栏毛玻璃',
       glassBlurOff: '关闭', glassBlurSoft: '轻微', glassBlurStandard: '标准', glassBlurHeavy: '浓厚',
       bokehRow: '中央散景', bokehHint: '首页以画面中心为圆心虚化；对话中沿对话列中轴线向两侧虚化，向外过渡回清晰',
       bokehNeedLayer: '需先开启等高线',
@@ -6278,6 +6553,19 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       /* 音频通知：播放发生在宿主进程（lib/audio.js），所以这里的每一行都在
          说明「什么时候响」而不是「怎么响」；试听按钮走宿主真实播放链路。 */
       groupAudio: '音频',
+       groupGlow: '氛围',
+       tabGlow: '泛光',
+       bottomGlowRow: '对话底侧泛光',
+       bottomGlowHint: '任务空闲时聚在对话中央；运行时铺开到整条底部并加快流动',
+       bottomGlowDispersionRow: '轻微色散',
+       bottomGlowDispersionHint: '叠加很淡的彩边模糊，增强层次与通透感',
+       bottomGlowOn: '开启',
+       bottomGlowOff: '关闭',
+       bottomGlowSoft: '柔和',
+       bottomGlowStandard: '标准',
+       bottomGlowStrong: '强烈',
+       bottomGlowDispersionOn: '开启',
+       bottomGlowDispersionOff: '关闭',
       audioRow: '音频通知',
       audioOn: '开启提示音',
       audioOff: '关闭提示音',
@@ -6338,7 +6626,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       groupAnim: 'ANIMATION',
       groupFun: 'ENTERTAINMENT',
       /* Short segment labels for the chapter selector (see the zh dictionary):
-         "04 ENTERTAINMENT" does not fit a fifth of the panel, and 娱乐 reads as
+         "04 ENTERTAINMENT" does not fit a sixth of the panel, and 娱乐 reads as
          "Extras" rather than "Fun" — the chapter holds the announcement extras. */
       tabTheme: 'Theme',
       tabBg: 'Background',
@@ -6375,10 +6663,11 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       contourAnimHintOn: 'The field drifts at 24, 60 or 120 FPS (static pattern when off)',
       contourAnimHintOff: 'Static contours, with no per-frame work at all',
       contourAnimHintReduced: 'Your system asks for reduced motion, so it stays static',
-      glassRow: 'Frosted glass', glassHint: 'One material for the composer, the left sidebar and the titlebar band; the level sets how much tint',
+      glassRow: 'Composer frosted glass', glassHint: 'Controls only the composer; opacity is independent of the sidebar and titlebar',
+       chromeGlassRow: 'Sidebar and titlebar glass', chromeGlassHint: 'Independent chrome opacity; deliberately lighter than the composer by default',
       glassOff: 'Off', glassSubtle: 'Subtle', glassStandard: 'Standard', glassStrong: 'Strong',
-      glassBlurRow: 'Frost blur', glassBlurHint: 'Defocus radius: larger is softer. The contour reads best at 3px or below',
-      glassBlurHintOff: 'Needs frosted glass first',
+      glassBlurRow: 'Frost blur', glassBlurHint: 'Applies to enabled frosted surfaces; a larger radius defocuses more',
+      glassBlurHintOff: 'Enable composer or sidebar/titlebar glass first',
       glassBlurOff: 'Off', glassBlurSoft: 'Soft', glassBlurStandard: 'Standard', glassBlurHeavy: 'Heavy',
       bokehRow: 'Centre defocus', bokehHint: 'A radial defocus on the centre of the start page; along the conversation column\'s centre line, off to both sides, once a conversation is running',
       bokehNeedLayer: 'Needs the contour sheet',
@@ -6433,6 +6722,19 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       thunderAnimHintOff: 'Off by default; the word appears instantly and leaves after 3s, with no scaling or fading',
       thunderAnimHintReduced: 'Your system asks for reduced motion, so it appears instantly',
       groupAudio: 'AUDIO',
+       groupGlow: 'AMBIENT GLOW',
+       tabGlow: 'Glow',
+       bottomGlowRow: 'Conversation bottom glow',
+       bottomGlowHint: 'Centred and slow while idle; spread across the bottom and faster while a task runs',
+       bottomGlowDispersionRow: 'Subtle chromatic dispersion',
+       bottomGlowDispersionHint: 'Adds a restrained colour-fringe blur for extra depth',
+       bottomGlowOn: 'Turn on',
+       bottomGlowOff: 'Turn off',
+       bottomGlowSoft: 'Soft',
+       bottomGlowStandard: 'Standard',
+       bottomGlowStrong: 'Strong',
+       bottomGlowDispersionOn: 'Turn on',
+       bottomGlowDispersionOff: 'Turn off',
       audioRow: 'Audio notifications',
       audioOn: 'Turn on',
       audioOff: 'Turn off',
@@ -6504,7 +6806,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
     }
 
     /* ---------- Settings page: 主题 (own settings.section) ---------- */
-    /* The five chapters of the settings page, in editorial order. One row drives
+    /* The six chapters of the settings page, in editorial order. One row drives
        three things at once — the selector strip's segment, the group container and
        the aria wiring between them — so a chapter can never appear in the strip
        without a panel to open, or vice versa.
@@ -6524,6 +6826,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       { id: 'anim', group: 'group-anim', no: '03', short: 'tabAnim', full: 'groupAnim' },
       { id: 'fun', group: 'group-fun', no: '04', short: 'tabFun', full: 'groupFun' },
       { id: 'audio', group: 'group-audio', no: '05', short: 'tabAudio', full: 'groupAudio' },
+       { id: 'glow', group: 'group-glow', no: '06', short: 'tabGlow', full: 'groupGlow' },
     ]
     const SETTINGS_CHAPTER_IDS = SETTINGS_CHAPTERS.map((chapter) => chapter.id)
 
@@ -6626,8 +6929,11 @@ caption controls composite beside this CSS band. Browser tests cover web surface
           const [thunderAnim, setThunderAnim] = R.useState(isThunderAnimOn())
           const [palette, setPalette] = R.useState(readPalette())
           const [glass, setGlass] = R.useState(readGlass())
+          const [chromeGlass, setChromeGlass] = R.useState(readChromeGlass())
           const [glassBlur, setGlassBlur] = R.useState(readGlassBlur())
           const [composerGlow, setComposerGlow] = R.useState(readComposerGlow())
+           const [bottomGlow, setBottomGlow] = R.useState(readBottomGlow())
+           const [bottomGlowDispersion, setBottomGlowDispersion] = R.useState(isBottomGlowDispersionOn())
           const [bokeh, setBokeh] = R.useState(readBokeh())
           const [bokehWash, setBokehWash] = R.useState(readBokehWash())
           const [mode, setMode] = R.useState(prefsGet(RADIUS_KEY) || 'square')
@@ -6706,8 +7012,11 @@ caption controls composite beside this CSS band. Browser tests cover web surface
               setThunderAnim(isThunderAnimOn())
               setPalette(readPalette())
               setGlass(readGlass())
+               setChromeGlass(readChromeGlass())
               setGlassBlur(readGlassBlur())
-              setBokeh(readBokeh())
+              setBottomGlow(readBottomGlow())
+               setBottomGlowDispersion(isBottomGlowDispersionOn())
+               setBokeh(readBokeh())
               setBokehWash(readBokehWash())
               setMode(prefsGet(RADIUS_KEY) || 'square')
               /* The 音频 rows seed themselves from the same store, so they are
@@ -6782,7 +7091,13 @@ caption controls composite beside this CSS band. Browser tests cover web surface
             setGlass(value)
             syncGlass()
           }
-          const setGlassBlurValue = (value) => {
+          const setChromeGlassValue = (value) => {
+             if (!CHROME_GLASS_OPTIONS.includes(value)) return
+             prefsSet(CHROME_GLASS_KEY, value)
+             setChromeGlass(value)
+             syncGlass()
+           }
+           const setGlassBlurValue = (value) => {
             if (!GLASS_BLUR_OPTIONS.includes(value)) return
             prefsSet(GLASS_BLUR_KEY, value)
             setGlassBlur(value)
@@ -6793,12 +7108,26 @@ caption controls composite beside this CSS band. Browser tests cover web surface
             prefsSet(GLOW_KEY, value)
             setComposerGlow(value)
             syncComposerGlow()
+       syncBottomGlow()
           }
           /* Read through the store like every other handler here, never the React
              state variable: the two can disagree while the section is still
              loading, and the write has to carry the value the store actually
              holds (see the long note on the toggles below). */
-          const setBokehValue = (value) => {
+          const setBottomGlowValue = (value) => {
+             if (!BOTTOM_GLOW_OPTIONS.includes(value)) return
+             prefsSet(BOTTOM_GLOW_KEY, value)
+             setBottomGlow(value)
+             syncBottomGlow()
+             syncThunder()
+           }
+           const toggleBottomGlowDispersion = () => {
+             const next = !isBottomGlowDispersionOn()
+             prefsSet(BOTTOM_GLOW_DISPERSION_KEY, next ? '1' : '0')
+             setBottomGlowDispersion(next)
+             syncBottomGlow()
+           }
+           const setBokehValue = (value) => {
             if (!BOKEH_OPTIONS.includes(value)) return
             prefsSet(BOKEH_KEY, value)
             setBokeh(value)
@@ -7047,7 +7376,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
             setAudioDiag(next)
           }
           const pageStyle = { maxWidth: '640px', padding: '4px 0 16px' }
-          /* The switches are grouped into the five chapters the selector above
+          /* The switches are grouped into the six chapters the selector above
              offers, so the page can be scanned instead of read as a flat list.
              Each group is an editorial numbered header; rows keep their stable
              React keys. The last row of each group drops its divider, so the
@@ -7112,7 +7441,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
           const row = (key, last, children) => R.createElement('div', { key, style: last ? { ...rowStyle, borderBottom: 'none' } : rowStyle }, children)
 
           /* ---------- chapter selector (滑动槽) ----------
-             Five chapters on one page is a lot of scrolling, so the panel opens
+             Six chapters on one page is a lot of scrolling, so the panel opens
              with a segmented selector and shows ONE chapter at a time.
 
              WHY THE INACTIVE CHAPTERS STAY MOUNTED. They are hidden with
@@ -7193,7 +7522,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
               tabIndex: isActive ? 0 : -1,
               onClick: () => selectChapter(chapter.id),
               onKeyDown: (event) => onChapterKeyDown(event, index),
-              // The short label fits a fifth of the panel — NO chapter number: five
+              // The short label fits a sixth of the panel — NO chapter number: five
               // "01 …" prefixes on one row read as clutter, and the number is still
               // on the chapter's own header (and in this tooltip).
               title: chapter.no + ' ' + t(chapter.full),
@@ -7283,22 +7612,32 @@ caption controls composite beside this CSS band. Browser tests cover web surface
                 }, GLASS_OPTIONS.map((value) => R.createElement('option', { key: value, value },
                   t({ off: 'glassOff', subtle: 'glassSubtle', standard: 'glassStandard', strong: 'glassStrong' }[value]))))
               ]),
-              /* 磨砂模糊 — the radius on its own row. A dependent row, not a second
-                 master: with 磨砂玻璃 off there is no frost to defocus, so the control
-                 disables (same treatment as the renderer row) rather than silently
-                 editing a value nothing reads. */
-              row('glass-blur', glass === 'off', [
+              row('chrome-glass', false, [
+                R.createElement('span', { style: labelStyle }, t('chromeGlassRow'),
+                  R.createElement('span', { style: hintStyle }, t('chromeGlassHint'))),
+                R.createElement('select', {
+                  'aria-label': t('chromeGlassRow'), value: chromeGlass,
+                  onChange: (event) => setChromeGlassValue(event.target.value),
+                  style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
+                    border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px' },
+                }, CHROME_GLASS_OPTIONS.map((value) => R.createElement('option', { key: value, value },
+                  t({ off: 'glassOff', subtle: 'glassSubtle', standard: 'glassStandard', strong: 'glassStrong' }[value]))))
+              ]),
+              /* 磨砂模糊 applies to whichever glass surfaces are enabled; when both are off
+                 there is no frost to defocus, so the control disables rather than editing
+                 a value nothing currently reads. */
+              row('glass-blur', glass === 'off' && chromeGlass === 'off', [
                 R.createElement('span', { style: labelStyle }, t('glassBlurRow'),
                   R.createElement('span', { style: hintStyle },
-                    t(glass === 'off' ? 'glassBlurHintOff' : 'glassBlurHint'))),
+                    t(glass === 'off' && chromeGlass === 'off' ? 'glassBlurHintOff' : 'glassBlurHint'))),
                 R.createElement('select', {
                   'aria-label': t('glassBlurRow'), value: glassBlur,
-                  disabled: glass === 'off',
+                  disabled: glass === 'off' && chromeGlass === 'off',
                   onChange: (event) => setGlassBlurValue(event.target.value),
                   style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
                     border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px',
-                    cursor: glass === 'off' ? 'not-allowed' : 'pointer',
-                    opacity: glass === 'off' ? 0.45 : 1 },
+                    cursor: glass === 'off' && chromeGlass === 'off' ? 'not-allowed' : 'pointer',
+                    opacity: glass === 'off' && chromeGlass === 'off' ? 0.45 : 1 },
                 }, GLASS_BLUR_OPTIONS.map((value) => R.createElement('option', { key: value, value },
                   t({ off: 'glassBlurOff', soft: 'glassBlurSoft', standard: 'glassBlurStandard', heavy: 'glassBlurHeavy' }[value]))))
               ]),
@@ -7697,8 +8036,37 @@ caption controls composite beside this CSS band. Browser tests cover web surface
                   )
                 ),
                 R.createElement('button', { type: 'button', onClick: toggleAudioDiag, style: btnStyleFor(audioDiag) }, t(audioDiag ? 'audioDiagOff' : 'audioDiagOn'))
-              ]),
-            ]),
+               ]),
+             ]),
+             chapterPanel(SETTINGS_CHAPTERS[5], [
+               groupTitle('06', 'groupGlow'),
+               row('bottom-glow', false, [
+                 R.createElement('span', { style: labelStyle },
+                   t('bottomGlowRow') + t('sep') + t({ off: 'bottomGlowOff', soft: 'bottomGlowSoft', standard: 'bottomGlowStandard', strong: 'bottomGlowStrong' }[bottomGlow]),
+                   R.createElement('span', { style: hintStyle }, t('bottomGlowHint'))
+                 ),
+                 R.createElement('select', {
+                   'aria-label': t('bottomGlowRow'), value: bottomGlow,
+                   onChange: (event) => setBottomGlowValue(event.target.value),
+                   style: { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)',
+                     border: '1px solid var(--dsw-alias-border-l2)', padding: '6px 10px' },
+                 }, BOTTOM_GLOW_OPTIONS.map((value) => R.createElement('option', { key: value, value },
+                   t({ off: 'bottomGlowOff', soft: 'bottomGlowSoft', standard: 'bottomGlowStandard', strong: 'bottomGlowStrong' }[value]))))
+               ]),
+               row('bottom-glow-dispersion', true, [
+                 R.createElement('span', { style: labelStyle },
+                   t('bottomGlowDispersionRow') + t('sep') + stateOf(bottomGlowDispersion),
+                   R.createElement('span', { style: hintStyle }, t('bottomGlowDispersionHint'))
+                 ),
+                 R.createElement('button', {
+                   type: 'button', onClick: toggleBottomGlowDispersion,
+                   style: btnStyleFor(bottomGlowDispersion, bottomGlow === 'off'),
+                   disabled: bottomGlow === 'off',
+                   title: bottomGlow === 'off' ? t('bottomGlowOff') : '',
+                 }, t(bottomGlowDispersion ? 'bottomGlowDispersionOff' : 'bottomGlowDispersionOn'))
+               ]),
+             ]),
+
           ])
         }
       )

@@ -167,7 +167,7 @@ const buttons = nodes.filter((n) => n.type === 'button')
    → 启动加载动画音 → 诊断日志. 当前音源 and 自定义音效目录 are deliberately gone
    (custom sound sources are not supported yet), so they must not come back here
    without the rows themselves coming back. */
-const ROW_KEYS = ['theme', 'palette', 'glass', 'glass-blur', 'radius', 'contour', 'contour-anim', 'contour-trail', 'contour-renderer', 'contour-fps', 'contour-speed', 'contour-scroll-pause', 'bokeh', 'bokeh-wash', 'watermark', 'watermark-persist', 'composer-glow', 'loader', 'thunder', 'thunder-anim', 'audio', 'audio-volume', 'audio-start', 'audio-done', 'audio-attention', 'audio-fail', 'audio-human', 'audio-boot', 'audio-diag']
+const ROW_KEYS = ['theme', 'palette', 'glass', 'chrome-glass', 'glass-blur', 'radius', 'contour', 'contour-anim', 'contour-trail', 'contour-renderer', 'contour-fps', 'contour-speed', 'contour-scroll-pause', 'bokeh', 'bokeh-wash', 'watermark', 'watermark-persist', 'composer-glow', 'loader', 'thunder', 'thunder-anim', 'audio', 'audio-volume', 'audio-start', 'audio-done', 'audio-attention', 'audio-fail', 'audio-human', 'audio-boot', 'audio-diag', 'bottom-glow', 'bottom-glow-dispersion']
 const rows = nodes.filter((n) => n.type === 'div' && n.props && ROW_KEYS.includes(n.props.key))
 const groups = (tree.children || []).filter((c) => c && c.type === 'div' && c.props && /^group-/.test(c.props.key))
 
@@ -190,8 +190,8 @@ if (rowsInGroups.length === rows.length) {
     + rowsInGroups.map((r) => r.props.key).filter((k) => !ROW_KEYS.includes(k)).join(', '))
 }
 
-if (groups.length === 5) pass('rows are grouped into 5 sections (主题/背景/动画/娱乐/音频)')
-else fail('expected 5 group containers, found ' + groups.length)
+if (groups.length === 6) pass('rows are grouped into 6 sections (主题/背景/动画/娱乐/音频/氛围)')
+else fail('expected 6 group containers, found ' + groups.length)
 
 const unkeyed = rows.filter((r) => !r.props || r.props.key === undefined)
 if (unkeyed.length === 0) pass('every row carries a React key')
@@ -204,7 +204,7 @@ else fail('duplicate row keys: ' + keys.join(', '))
 /* The group headers must be numbered editorial labels in the documented order,
    and the scheme-aware ink rule for them must exist in the stylesheet source. */
 const all = textOf(tree)
-for (const [label, title] of [['01 主题', 'THEME'], ['02 背景', 'BACKGROUND'], ['03 动画', 'ANIMATION'], ['04 娱乐', 'ENTERTAINMENT'], ['05 音频', 'AUDIO']]) {
+for (const [label, title] of [['01 主题', 'THEME'], ['02 背景', 'BACKGROUND'], ['03 动画', 'ANIMATION'], ['04 娱乐', 'ENTERTAINMENT'], ['05 音频', 'AUDIO'], ['06 氛围', 'AMBIENT GLOW']]) {
   if (all.includes(label) && all.includes(title)) pass('group header present: ' + label + ' / ' + title)
   else fail('group header missing: ' + label + ' / ' + title)
 }
@@ -233,7 +233,7 @@ const latinSize = parseFloat(latinPart ? latinPart.props.style.fontSize : '0')
 if (latinSize > 0 && latinSize < nameSize) pass('英文行比中文名小一号（' + latinSize + 'px < ' + nameSize + 'px）')
 else fail('the latin line is not smaller than the name: latin=' + latinSize + ' name=' + nameSize)
 
-/* --- the chapter selector (滑动槽): one strip at the top, five chapters, one
+/* --- the chapter selector (滑动槽): one strip at the top, six chapters, one
    visible at a time. Asserted on the rendered tree, and the strip is addressed by
    its OWN key: a key starting with `group-` would be counted as a sixth chapter
    by the checks above, which is exactly the kind of drift this catches. --- */
@@ -241,10 +241,10 @@ const tablist = (tree.children || []).find((c) => c && c.type === 'div' && c.pro
 if (tablist && tablist.props.role === 'tablist') pass('章节选择条渲染在页面顶部（role=tablist）')
 else fail('the chapter selector strip is missing from the top of the panel')
 const tabButtons = tablist ? walk(tablist).filter((n) => n.type === 'button') : []
-if (tabButtons.length === 5) pass('选择条有 5 个章节段')
+if (tabButtons.length === 6) pass('选择条有 6 个章节段')
 else fail('expected 5 chapter segments, found ' + tabButtons.length)
 const tabLabels = tabButtons.map((b) => textOf(b))
-if (tabLabels.join('|') === '主题|背景|动画|娱乐|音频') pass('段标签按章节顺序排列、不带编号：' + tabLabels.join(' / '))
+if (tabLabels.join('|') === '主题|背景|动画|娱乐|音频|泛光') pass('段标签按章节顺序排列、不带编号：' + tabLabels.join(' / '))
 else fail('chapter segments read ' + JSON.stringify(tabLabels))
 if (tabButtons.every((b) => b.props.role === 'tab' && typeof b.props.onClick === 'function')) pass('每段都是 role=tab 且可点击')
 else fail('a chapter segment is not a clickable role=tab')
@@ -253,7 +253,7 @@ if (selectedTabs.length === 1 && textOf(selectedTabs[0]) === '主题') pass('默
 else fail('expected exactly one selected segment (主题), got ' + JSON.stringify(selectedTabs.map(textOf)))
 const panels = groups.filter((g) => g.props.role === 'tabpanel')
 const visiblePanels = panels.filter((g) => !g.props.style || g.props.style.display !== 'none')
-if (panels.length === 5 && visiblePanels.length === 1 && visiblePanels[0].props.key === 'group-theme') {
+if (panels.length === 6 && visiblePanels.length === 1 && visiblePanels[0].props.key === 'group-theme') {
   pass('只有选中的章节可见，其余 display:none')
 } else {
   fail('expected exactly the theme chapter visible, got ' + JSON.stringify(visiblePanels.map((g) => g.props.key)))
@@ -265,7 +265,7 @@ if (selectedTabs.length === 1 && visiblePanels.length === 1
 } else {
   fail('the selected tab and its panel do not reference each other')
 }
-if (tabButtons.length === 5 && tabButtons[0].props.tabIndex === 0
+if (tabButtons.length === 6 && tabButtons[0].props.tabIndex === 0
   && tabButtons.slice(1).every((b) => b.props.tabIndex === -1)) {
   pass('roving tabindex：只有选中的段在 Tab 顺序里')
 } else {
@@ -273,7 +273,7 @@ if (tabButtons.length === 5 && tabButtons[0].props.tabIndex === 0
 }
 /* The chapter NUMBER left the segment but stays in the tooltip (and in the
    chapter's own header), so the editorial numbering is still discoverable. */
-if (tabButtons.length === 5 && tabButtons.map((b) => b.props.title).join('|') === '01 主题|02 背景|03 动画|04 娱乐|05 音频') {
+if (tabButtons.length === 6 && tabButtons.map((b) => b.props.title).join('|') === '01 主题|02 背景|03 动画|04 娱乐|05 音频|06 氛围') {
   pass('每段带「编号 + 章节名」tooltip：' + tabButtons.map((b) => b.props.title).join(' / '))
 } else {
   fail('chapter tooltips read ' + JSON.stringify(tabButtons.map((b) => b.props.title)))
@@ -322,10 +322,41 @@ if (bgTab && typeof bgTab.props.onClick === 'function') {
    log -S finds no commit adding it), so the assertion tested the test rather than
    the theme and failed on every pristine checkout. Removed rather than left
    red-by-default — a suite that is expected to fail teaches nothing. */
-for (const label of ['主题配色', '等高线背景', '动态等高线']) {
+for (const label of ['主题配色', '输入框毛玻璃', '顶栏与侧栏毛玻璃', '磨砂模糊', '等高线背景', '动态等高线', '对话底侧泛光', '轻微色散']) {
   if (all.includes(label)) pass('row present: ' + label)
   else fail('row missing: ' + label)
 }
+
+const rowSelect = key => {
+  const row = rows.find(r => r.props.key === key)
+  return row ? walk(row).find(n => n.type === 'select') : null
+}
+const bottomGlowSelect = rowSelect('bottom-glow')
+if (bottomGlowSelect && bottomGlowSelect.props.value === 'standard') pass('底侧泛光默认标准且有独立强度选择器')
+else fail('底侧泛光强度选择器缺失或默认值错误')
+if (bottomGlowSelect && bottomGlowSelect.children.map(textOf).join('|') === '关闭|柔和|标准|强烈') pass('底侧泛光提供四个强度档位')
+else fail('底侧泛光强度档位不完整')
+if (bottomGlowSelect) {
+  bottomGlowSelect.props.onChange({ target: { value: 'strong' } })
+  if (prefStore.get('bottomGlow') === 'strong') pass('底侧泛光强度写入持久化字段')
+  else fail('底侧泛光强度未写入 bottomGlow 字段')
+}
+const dispersionRow = rows.find((r) => r.props.key === 'bottom-glow-dispersion')
+const dispersionButton = dispersionRow ? walk(dispersionRow).find((n) => n.type === 'button') : null
+if (dispersionButton && /关闭/.test(textOf(dispersionButton))) pass('轻微色散默认开启且按钮可关闭')
+else fail('轻微色散默认状态或按钮文案错误')
+if (dispersionButton) {
+  dispersionButton.props.onClick()
+  if (prefStore.get('bottomGlowDispersion') === '0') pass('色散开关写入持久化字段')
+  else fail('色散开关未写入 bottomGlowDispersion 字段')
+}
+const composerGlassSelect = rowSelect('glass')
+const chromeGlassSelect = rowSelect('chrome-glass')
+if (composerGlassSelect && composerGlassSelect.props.value === 'off'
+    && chromeGlassSelect && chromeGlassSelect.props.value === 'standard')
+  pass('composer and chrome glass render independent defaults')
+else fail('glass selectors do not show independent defaults: composer=' + JSON.stringify(composerGlassSelect && composerGlassSelect.props.value)
+  + ', chrome=' + JSON.stringify(chromeGlassSelect && chromeGlassSelect.props.value))
 
 /* --- the palette row: default 谷地黄, and switching writes the field --- */
 if (all.includes('谷地黄')) pass('默认配色显示为谷地黄')

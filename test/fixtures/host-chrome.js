@@ -38,6 +38,7 @@ const BASE_CSS = `
 html, body { height: 100%; margin: 0 }html { --dsh-windows-titlebar-height: 40px; --dsh-sidebar-width: 240px;
   --dsw-radius-sm: 4px; --dsw-radius-md: 6px; --dsw-radius-lg: 8px; --dsw-focus-ring-width: 2px;
   --ds-ease-in-out: cubic-bezier(.4,0,.2,1); --ds-transition-duration-slow: .2s }
+html[data-windows-titlebar] { --dsh-frame-chrome-top: var(--dsh-windows-titlebar-height) }
 body { --dsw-font-family: 'Segoe UI', Arial, sans-serif; font-family: var(--dsw-font-family);
   --dsw-alias-bg-base: #e8e8e2; --dsw-alias-bg-layer-1: #f2f2ec; --dsw-alias-bg-layer-2: #dcddd6;
   --dsw-alias-label-primary: #101110; --dsw-alias-label-secondary: #4a4c48;

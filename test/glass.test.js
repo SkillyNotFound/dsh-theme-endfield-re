@@ -5,11 +5,13 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
  try {
   await boot(browser,path.resolve(__dirname,'..'))
   assert.equal(await browser.evaluate('document.body.hasAttribute("data-endfield-glass")'),false)
-  const original=await browser.evaluate('JSON.stringify(document.querySelector("[data-composer-card]").getBoundingClientRect().toJSON())')
+  assert.equal(await browser.evaluate('document.body.getAttribute("data-endfield-chrome-glass")'),'standard')
+   const original=await browser.evaluate('JSON.stringify(document.querySelector("[data-composer-card]").getBoundingClientRect().toJSON())')
   /* Captured with the frost OFF: the collapse control must not move once it is on. */
-  const collapseBefore=await browser.evaluate('JSON.stringify(document.querySelector("[data-endfield-collapse-toggle]").getBoundingClientRect().toJSON())')
+  await browser.evaluate('__prefs.setItem("dsh-theme-endfield-chrome-glass","off")')
+   const collapseBefore=await browser.evaluate('JSON.stringify(document.querySelector("[data-endfield-collapse-toggle]").getBoundingClientRect().toJSON())')
   for(const dark of [false,true])for(const palette of ['valley','wuling']) {
-    await browser.evaluate(`document.body.toggleAttribute('data-ds-dark-theme',${dark});__prefs.setItem('dsh-theme-endfield-palette',${JSON.stringify(palette)})`)
+    await browser.evaluate(`document.body.toggleAttribute('data-ds-dark-theme',${dark});__prefs.setItem('dsh-theme-endfield-chrome-glass','standard');__prefs.setItem('dsh-theme-endfield-palette',${JSON.stringify(palette)})`)
     /* The level moves OPACITY only; the radius is 磨砂模糊's job and so is constant here.
        What makes the tint visible at all is the FILL being well off --dsw-alias-bg-base:
        a fill near the base composites straight back to the base (that was the bug, and it
@@ -44,14 +46,18 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
       const base=rgb(body.getPropertyValue('--dsw-alias-bg-base'))
       const fill=rgb(body.getPropertyValue('--edge-glass-fill'))
       const alpha=Number(body.getPropertyValue('--edge-glass-alpha'))
-      const side=rgb(getComputedStyle(document.querySelector('.BynINW_sidebarCol')).backgroundColor)
+      const chromeFill=rgb(body.getPropertyValue('--edge-chrome-glass-fill'))
+       const chromeAlpha=Number(body.getPropertyValue('--edge-chrome-glass-alpha'))
+       const side=rgb(getComputedStyle(document.querySelector('.BynINW_sidebarCol')).backgroundColor)
       const L=c=>0.2126*c[0]+0.7152*c[1]+0.0722*c[2]
       const comp=fill.map((v,i)=>Math.round(base[i]*(1-alpha)+v*alpha))
-      return {base,fill,alpha,comp,side,
+       const chromeComp=chromeFill.map((v,i)=>Math.round(base[i]*(1-chromeAlpha)+v*chromeAlpha))
+      return {base,fill,alpha,comp,chromeFill,chromeAlpha,chromeComp,side,
               dComp:Math.abs(L(comp)-L(base)), dSide:Math.abs(L(side)-L(base))}
     })()`)
     assert.ok(fog.dComp>=4,'the glass fill must composite clearly off the page colour (fill '+JSON.stringify(fog.fill)+' over base '+JSON.stringify(fog.base)+' at '+fog.alpha+' gives '+JSON.stringify(fog.comp)+'; a fill near the base makes the frost invisible)')
-    assert.ok(fog.dSide>=1,'the sidebar must actually paint that composite (page '+JSON.stringify(fog.base)+' -> sidebar '+JSON.stringify(fog.side)+')')
+    assert.ok(fog.dSide>=1,'the sidebar must actually paint its independent chrome composite (page '+JSON.stringify(fog.base)+' -> sidebar '+JSON.stringify(fog.side)+')')
+     assert.equal(fog.chromeAlpha,.16,'changing composer glass must leave the default chrome alpha at its lighter independent value')
     /* 磨砂模糊 owns the radius for every surface. The values are deliberately small: the
        frost is a tint, so the backdrop carries its texture, and a 2px contour stroke does
        not survive a large gaussian. 'off' must be a REAL 0, and the ladder monotone. */
@@ -96,7 +102,8 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
                sharedGlow:read(frame.querySelector('[data-endfield-contour]'))}
     })()`)
     assert.match(surfaces.sidebar.filter,/blur\(4px\)/,'the sidebar column must carry the frost (the old [data-slot=sidebar] rule matched nothing)')
-    assert.equal(surfaces.sidebar.background,surfaces.composer.background,'sidebar and composer must share one fill')
+    assert.notEqual(surfaces.sidebar.background,surfaces.composer.background,'chrome and composer opacity must be independent')
+     assert.match(surfaces.sidebar.background,/0\.16\)/,'sidebar uses its lighter standard chrome alpha')
     assert.match(surfaces.sidebar.shadow,/inset/,'the sidebar needs its right-edge boundary line (the host sets border-right:none on Windows)')
     assert.match(surfaces.sidebar.image,/linear-gradient/,'the sidebar keeps its local specular sheen')
     assert.doesNotMatch(surfaces.sidebar.image,/radial-gradient/,'the sidebar must not restart a separate yellow bloom')
@@ -113,14 +120,14 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
       document.body.append(p);const c=getComputedStyle(p).backgroundColor;p.remove();return c})()`)
     assert.match(surfaces.band.filter,/blur\(4px\)/,'the Windows titlebar band carries the same frost as the sidebar')
     assert.equal(surfaces.band.background,surfaces.sidebar.background,'band and sidebar must share one fill (the frost row promises one material across the chrome)')
-    assert.equal(surfaces.band.background,surfaces.composer.background,'the band takes the same fill as the composer, like the sidebar does')
+    assert.notEqual(surfaces.band.background,surfaces.composer.background,'the band opacity is independent from the composer')
     assert.notEqual(surfaces.band.background,bandFill,'the band is tinted: the caption probe resolves the TOKEN on its own span, not this box')
     assert.match(surfaces.band.image,/linear-gradient/,'the band keeps its local specular sheen on top of the frost fill')
     assert.doesNotMatch(surfaces.band.image,/radial-gradient/,'the band must not restart a separate yellow bloom')
     assert.equal(surfaces.band.z,'1','the band must paint above the z-index:0 contour sheet so backdrop blur is visible')
     assert.match(surfaces.band.shadow,/inset/,'the titlebar band keeps its bottom boundary line')
-    /* The band's tint must track the level, not sit at one fixed alpha. */
-    for(const [level,alpha] of [['subtle',.22],['standard',.34],['strong',.46]]){
+    /* Composer intensity must not change the band's independent chrome opacity. */
+    for(const [level,alpha] of [['subtle',.16],['standard',.16],['strong',.16]]){
       await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass',${JSON.stringify(level)})`)
       const band=await browser.evaluate(`getComputedStyle(document.querySelector('.BynINW_frame'),'::before').backgroundColor`)
       assert.match(band,new RegExp(String(alpha).replace('.','\\.')),'强度='+level+' must reach the titlebar band too')
@@ -167,9 +174,19 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
   await browser.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-transparency',value:'reduce'}]})
   assert.equal(await browser.evaluate('getComputedStyle(document.querySelector("[data-composer-card]")).backdropFilter'),'none')
   assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector("[data-dockkit-host] > [class*='_tabHost']")).backdropFilter`),'none')
-  await browser.evaluate('__prefs.setItem("dsh-theme-endfield-enabled","0")')
+  const reducedFills=await browser.evaluate(`(()=>{
+     document.body.style.setProperty('--edge-glass-fill','1 2 3')
+     document.body.style.setProperty('--edge-chrome-glass-fill','101 102 103')
+     return {composer:getComputedStyle(document.querySelector('[data-composer-card]')).backgroundColor,
+             sidebar:getComputedStyle(document.querySelector('.BynINW_sidebarCol')).backgroundColor}
+   })()`)
+   assert.equal(reducedFills.composer,'rgb(1, 2, 3)','reduced transparency keeps the composer fill independent')
+   assert.equal(reducedFills.sidebar,'rgb(101, 102, 103)','reduced transparency keeps the chrome fill independent')
+   await browser.evaluate('__prefs.setItem("dsh-theme-endfield-enabled","0")')
   assert.equal(await browser.evaluate('document.body.hasAttribute("data-endfield-glass")'),false)
-  assert.deepEqual(browser.errors,[])
+  assert.equal(await browser.evaluate('document.body.hasAttribute("data-endfield-chrome-glass")'),false)
+   assert.equal(await browser.evaluate('document.body.hasAttribute("data-endfield-glass-blur")'),false)
+   assert.deepEqual(browser.errors,[])
   console.log('PASS: reduced-transparency, fullscreen exclusion and theme teardown')
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1})

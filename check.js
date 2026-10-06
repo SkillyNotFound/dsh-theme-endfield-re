@@ -330,9 +330,9 @@ if (openIdx < 0) {
 
        (b) Only the host's fixed titlebar buttons receive the 40px compensation; the
        expanded new-session button and all brand descendants remain in ordinary layout. */
-    const surfaceRule = /body\[data-endfield-glass\][^{]*\[class\$='_sidebarCol'\][^{]*\[class\*='_root'\]\s*\{([^}]*)\}/.exec(stripped)
+    const surfaceRule = /body\[data-endfield-chrome-glass\][^{]*\[class\$='_sidebarCol'\][^{]*\[class\*='_root'\]\s*\{([^}]*)\}/.exec(stripped)
     if (surfaceRule === null) {
-      fail('no rule clears the sidebar\'s own surface under body[data-endfield-glass]\n      '
+      fail('no rule clears the sidebar\'s own surface under body[data-endfield-chrome-glass]\n      '
         + '-> SidebarRoot paints --dsw-specific-sidebar-fill inside the frosted column; the same '
         + 'value as --dsw-alias-bg-base, so the frost, the contour and the boundary line are all '
         + 'invisible behind it')
@@ -368,16 +368,16 @@ if (openIdx < 0) {
       }
     }
     const bandRule = ruleBlocks.find(([sel, body]) => sel.includes('::before') && sel.includes("class*='_frame'")
-      && sel.includes('data-windows-titlebar') && sel.includes('data-endfield-glass') && body.includes('--edge-glass-fill'))
+      && sel.includes('data-windows-titlebar') && sel.includes('data-endfield-chrome-glass') && body.includes('--edge-chrome-glass-fill'))
     if (bandRule === undefined) {
       fail('no frosted titlebar-band rule\n      '
         + '-> band and sidebar have to read as one surface. The native caption probe resolves '
         + '--dsw-specific-sidebar-fill on a span of its own (lib/preload-app.cjs), so tinting this '
         + 'box cannot desync the caption buttons')
-    } else if (!/background-color\s*:\s*rgb\(var\(--edge-glass-fill\)\s*\/\s*var\(--edge-glass-alpha\)\)/.test(bandRule[1])
+    } else if (!/background-color\s*:\s*rgb\(var\(--edge-chrome-glass-fill\)\s*\/\s*var\(--edge-chrome-glass-alpha\)\)/.test(bandRule[1])
       || !/backdrop-filter\s*:\s*blur\(var\(--edge-glass-blur\)\)/.test(bandRule[1])) {
       fail('the titlebar band does not take the same fill/alpha and blur as the column\n      '
-        + '-> use --edge-glass-fill/--edge-glass-alpha and --edge-glass-blur, the same pair the '
+        + '-> use --edge-chrome-glass-fill/--edge-chrome-glass-alpha and --edge-glass-blur, the same pair the '
         + 'sidebar column uses, or the two surfaces drift apart again')
     } else if (!/z-index\s*:\s*1\b/.test(bandRule[1])) {
       fail('the titlebar band is still underneath the contour sheet\n      '
@@ -398,13 +398,21 @@ if (openIdx < 0) {
     } else {
       pass('one yellow glow is shared across the band and sidebar')
     }
-    const SHIFT = /transform\s*:\s*translateY\(calc\(-1 \* var\(--dsh-windows-titlebar-height\)\)\)/
+    const modalMaskRule = ruleBlocks.find(([sel, body]) => sel.includes('data-windows-titlebar')
+       && sel.includes(":has([class$='_mask'])") && /--dsh-frame-chrome-top\s*:\s*0px\s*!important/.test(body))
+     if (modalMaskRule === undefined) {
+       fail('active modal masks still exempt the Windows titlebar band\n      '
+         + '-> set --dsh-frame-chrome-top: 0px while a host *_mask is mounted')
+     } else {
+       pass('active modal masks dim the titlebar band too')
+     }
+     const SHIFT = /transform\s*:\s*translateY\(calc\(-1 \* var\(--dsh-windows-titlebar-height\)\)\)/
     const sidebarHook = (sel) => sel.includes("class$='_sidebarCol'") || sel.includes("class*='_sidebarCol'")
     const shiftRule = (token) => ruleBlocks.find(([sel, body]) => {
       const rightTarget = token === '_toggle'
         ? sel.includes("button[class*='_toggle']")
         : sel.includes("[class*='_collapsed'] button[class*='_newSession']")
-      return sel.includes('data-windows-titlebar') && sel.includes('data-endfield-glass')
+      return sel.includes('data-windows-titlebar') && sel.includes('data-endfield-chrome-glass')
         && sidebarHook(sel) && rightTarget && SHIFT.test(body)
     })
     /* The collapse toggle always exists; the new-session button is compensated only in
@@ -412,7 +420,7 @@ if (openIdx < 0) {
        remain in normal flow. */
     const missingShift = ['_toggle', '_newSession'].filter((token) => shiftRule(token) === undefined)
     const clipRule = ruleBlocks.find(([sel, body]) =>
-      sel.includes('data-endfield-glass') && sidebarHook(sel) && !sel.includes('_root')
+      sel.includes('data-endfield-chrome-glass') && sidebarHook(sel) && !sel.includes('_root')
       && /overflow\s*:\s*visible/.test(body))
     if (missingShift.length > 0) {
       fail('the titlebar control(s) ' + missingShift.join(', ') + ' are not shifted back into the band\n      '

@@ -39,7 +39,11 @@ const makeEl = (tag) => {
     tagName: String(tag).toUpperCase(),
     children: [],
     attrs: {},
-    style: {},
+    style: {
+      values: {},
+      setProperty(k, v) { this.values[k] = String(v) },
+      getPropertyValue(k) { return this.values[k] || '' },
+    },
     className: '',
     textContent: '',
     parentNode: null,
@@ -66,12 +70,20 @@ const makeEl = (tag) => {
   return el
 }
 const body = makeEl('body')
+let activeConversationRoot = null
+const windowListeners = new Map()
+const addWindowListener = (name, fn) => {
+  if (!windowListeners.has(name)) windowListeners.set(name, new Set())
+  windowListeners.get(name).add(fn)
+}
+const removeWindowListener = (name, fn) => { if (windowListeners.has(name)) windowListeners.get(name).delete(fn) }
+const dispatchWindowEvent = (name, event) => { for (const fn of windowListeners.get(name) || []) fn(event) }
 const document = {
   body,
   head: makeEl('head'),
   createElement: (t) => makeEl(t),
   createTextNode: (t) => ({ nodeValue: String(t) }),
-  querySelector: () => null,
+  querySelector: (selector) => selector === '[class$="_root"][data-phase="active"]' ? activeConversationRoot : null,
   querySelectorAll: () => [],
   getElementById: () => null,
   addEventListener() {},
@@ -150,6 +162,7 @@ const makePrefStore = (extra = {}) => settingsScopeStub(Object.assign({
   loader: '0',
   contour: '0',
   watermark: '0',
+  bottomGlow: 'off',
 }, extra))
 
 const prefStore = makePrefStore()
@@ -157,7 +170,7 @@ const prefStore = makePrefStore()
 const sandbox = {
   window: {
     __ModuleLoader__: null,
-    addEventListener() {}, removeEventListener() {},
+    addEventListener: addWindowListener, removeEventListener: removeWindowListener,
     matchMedia: () => ({ matches: false }),
     innerWidth: 1440,
     setTimeout: setTimeoutFake, clearTimeout: clearTimeoutFake,
@@ -244,6 +257,62 @@ const R = {
 sandbox.React = R
 let tree
 try { tree = rendered() } catch (e) { fail('settings render threw: ' + e.message); process.exit(1) }
+/* The same authoritative running snapshot also controls the conversation bloom:
+   verify it attaches only to the active conversation root and changes presentation
+   without depending on DOM class hashes or the announcement feature. */
+activeConversationRoot = makeEl('div')
+activeConversationRoot.getBoundingClientRect = () => ({ width: 800, height: 700, top: 0, left: 0 })
+let composerAnchorRect = { width: 360, height: 70, top: 580, left: 380 }
+const composerAnchor = { getBoundingClientRect: () => composerAnchorRect }
+activeConversationRoot.querySelector = (selector) => selector === '[data-composer-card]' ? composerAnchor : null
+activeConversationRoot.className = 'Conversation_root'
+activeConversationRoot.setAttribute('data-phase', 'active')
+const glowSelect = walk(tree).find((n) => n.type === 'select' && n.props['aria-label'] === '对话底侧泛光')
+if (!glowSelect) fail('底侧泛光强度 select 未渲染')
+else {
+  glowSelect.props.onChange({ target: { value: 'standard' } })
+  const glow = activeConversationRoot.children.find((child) => child.hasAttribute('data-endfield-bottom-glow-layer'))
+  if (glow && glow.getAttribute('data-running') === 'false') pass('空闲对话挂载光束层并使用空闲状态')
+  else fail('底侧泛光没有挂载到活动对话或缺少空闲状态')
+  if (glow && glow.children.length === 30) pass('泛光使用 30 个低成本中心光源')
+  else fail('中心光源数量错误：' + (glow && glow.children.length))
+  const sources = glow ? glow.children : []
+  const sourceStyles = sources.map((source) => source.style && source.style.values ? source.style.values : {})
+  const firstSource = sourceStyles[0] || {}
+  if (['--glow-source-x', '--glow-source-width', '--glow-source-height-idle', '--glow-source-height-running', '--glow-source-tint', '--glow-source-opacity-high', '--glow-source-duration-idle', '--glow-source-duration-running'].every((key) => firstSource[key])) pass('每个中心光源有随机位置、范围、色阶、强度与呼吸节奏')
+  else fail('中心光源随机参数缺失：' + JSON.stringify(firstSource))
+  if (new Set(sourceStyles.map((style) => style['--glow-source-width'])).size > 20) pass('中心光覆盖尺寸错落随机')
+  else fail('中心光的覆盖尺寸缺少变化')
+  const xValues = () => sourceStyles.map((style) => Number.parseFloat(style['--glow-source-x'] || '0'))
+  const centerOf = (values) => values.reduce((sum, value) => sum + value, 0) / (values.length || 1)
+  const spreadOf = (values) => Math.max(...values) - Math.min(...values)
+  const idleXs = xValues()
+  if (spreadOf(idleXs) < 35 && Math.abs(centerOf(idleXs) - (560 / 1440 * 100)) < 8) pass('空闲光点依据输入框中轴线聚集')
+  else fail('空闲光点没有聚在输入框下方：' + JSON.stringify({ mean: centerOf(idleXs), spread: spreadOf(idleXs) }))
+  composerAnchorRect = { width: 360, height: 70, top: 580, left: 720 }
+  dispatchWindowEvent('transitionend', { propertyName: 'transform' })
+  const shiftedXs = xValues()
+  if (Math.abs(centerOf(shiftedXs) - (900 / 1440 * 100)) < 8) pass('侧栏打开后中心跟随输入框向右移动')
+  else fail('侧栏打开后光效未跟随输入框：' + centerOf(shiftedXs))
+  composerAnchorRect = { width: 360, height: 70, top: 580, left: 380 }
+  dispatchWindowEvent('transitionend', { propertyName: 'transform' })
+  const restoredXs = xValues()
+  if (Math.abs(centerOf(restoredXs) - (560 / 1440 * 100)) < 8) pass('侧栏关闭后中心回到输入框中轴线')
+  else fail('侧栏关闭后光效未回到输入框：' + centerOf(restoredXs))
+  sessionA.set({ running: true })
+  if (glow && glow.getAttribute('data-running') === 'true') pass('任务 running 快照切换为全屏散开状态')
+  else fail('任务运行状态没有传递给泛光层')
+  const runningXs = xValues()
+  if (spreadOf(runningXs) > 70) pass('任务运行时光点散布到整个窗口宽度')
+  else fail('running 光点没有散布到整个窗口：' + JSON.stringify(runningXs))
+  sessionA.set({ running: false })
+  const settledXs = xValues()
+  if (spreadOf(settledXs) < 35 && Math.abs(centerOf(settledXs) - (560 / 1440 * 100)) < 8) pass('任务结束后重新回到输入框下方')
+  else fail('任务结束后光点未收回对话框范围')
+  glowSelect.props.onChange({ target: { value: 'off' } })
+  if (!activeConversationRoot.children.some((child) => child.hasAttribute('data-endfield-bottom-glow-layer'))) pass('关闭泛光后移除 DOM 层')
+  else fail('关闭泛光后仍残留泛光元素')
+}
 const onBtn = walk(tree).filter((n) => n.type === 'button').find((b) => /开启大字/.test(textOf(b)))
 if (!onBtn) { fail('no 开启大字 button to click'); process.exit(1) }
 try { onBtn.props.onClick() } catch (e) { fail('开启大字 click threw: ' + e.message); process.exit(1) }
@@ -597,6 +666,49 @@ if (zThunder && zLoader && Number(zThunder) < Number(zLoader)) {
 } else {
   fail('the announcement must sit below the boot plate (thunder=' + zThunder + ' loader=' + zLoader + ')')
 }
+
+/* The ambient layer's stylesheet is part of the task-state contract: it must mix
+   by brightening, live between the contour sheet and content, and move faster when
+   the runtime running bit is true. */
+const glowCssAt = src.indexOf('[class$=\'_root\']:has(> [data-endfield-bottom-glow-layer])')
+const glowCssEnd = glowCssAt < 0 ? -1 : src.indexOf('/* Brand wordmark HARNESS chip', glowCssAt)
+const glowCss = (glowCssAt < 0 || glowCssEnd < 0) ? '' : src.slice(glowCssAt, glowCssEnd)
+if (glowCss.includes('position: relative; z-index: 0') && glowCss.includes('z-index: -1')
+    && !glowCss.includes('isolation: isolate')
+    && src.includes('backdrop-filter: blur(var(--edge-glass-blur))')) pass('泛光负层不创建 isolation，保留输入框磨砂取样')
+else fail('泛光堆叠规则可能隔断输入框 backdrop-filter')
+if (src.includes('glowRandomBetween(65, 115)') && src.includes('glowRandomBetween(150, 230)')
+    && glowCss.includes('height: clamp(150px, 22vh, 250px)')
+    && glowCss.includes('height: clamp(260px, 40vh, 420px)')) pass('闲置光效矮小，运行态高度约为两倍')
+else fail('空闲/运行高度差异没有达到约两倍')
+if (/mix-blend-mode:\s*lighten/.test(glowCss)) pass('泛光采用提亮混合模式')
+else fail('泛光没有使用 lighten 混合')
+if (glowCss.includes('[data-endfield-glow-source]') && glowCss.includes('position: fixed')
+    && glowCss.includes('left: 0; right: 0; bottom: 0')
+    && !glowCss.includes('mask-image:') && !glowCss.includes('overflow: hidden')) pass('无裁切边界的透明视口层，running 可覆盖全屏底部')
+else fail('泛光容器仍有限宽裁切或缺少全视口定位')
+if (glowCss.includes('transform-origin: center bottom') && glowCss.includes('left: var(--glow-source-x); bottom: 0;')
+    && glowCss.includes('transform: translateX(-50%) scale') && !glowCss.includes('translateY(')) pass('中心光点固定于视口底线，动画不做垂直上漂')
+else fail('中心光点可能离开视口底线')
+if (glowCss.includes('animation: endfield-center-glow-breathe') && glowCss.includes('--glow-source-opacity-high')
+    && glowCss.includes('--glow-source-scale-high') && !glowCss.includes('filter:') && !glowCss.includes('will-change')) pass('中心光只动画 opacity/scale，避免重滤镜和多余合成层')
+else fail('中心光动画没有采用低成本渲染路径')
+if (glowCss.includes('radial-gradient(ellipse 44% 95% at 50% 100%') && glowCss.includes('transparent 100%')) pass('每个中心光按椭圆范围渐隐，不留下矩形色块')
+else fail('中心光缺少椭圆渐隐，可能露出矩形边界')
+if (src.includes('glowRandomBetween(3.5, 7)') && src.includes('glowRandomBetween(1.8, 3.4)')
+    && src.includes('glowRandomBetween(0.72, 0.9, 2)') && src.includes('glowRandomBetween(1.14, 1.3, 2)')) pass('呼吸周期缩短并扩大缩放幅度，运动可辨')
+else fail('中心光呼吸周期仍慢或缩放幅度过小')
+if (glowCss.includes("data-dispersion='true'") && glowCss.includes('background-image: radial-gradient')) pass('可选色散仍使用柔和的中心扩散')
+else fail('中心光色散开关缺失')
+if (src.includes('BOTTOM_GLOW_SOURCE_COUNT = 30') && src.includes('getBoundingClientRect()')
+    && src.includes('dialogCenter') && src.includes('glowRandomBetween(1, 99)')) pass('默认 30 个光源依据对话框几何聚中，running 时重新散布')
+else fail('未使用对话框边界定位中心光，或默认数量不是 30')
+if (src.includes('glowRandomBetween(5, 86) + \'%\'') && src.includes('ease-in-out infinite')
+    && !src.includes('setInterval(rerollBottomGlowColor')) pass('每个中心光颜色固定取主题色至白色范围，不再定时跳色')
+else fail('中心光颜色抽样范围错误，或仍有定时跳色')
+if (glowCss.includes('calc(100% - var(--glow-source-tint))')
+    && src.includes('body.theme-endfield-wuling[data-endfield-bottom-glow]')) pass('中心光颜色绑定对应主题色到白色渐变')
+else fail('颜色范围未绑定主题强调色与白色')
 
 console.log('')
 if (failures) { console.error(failures + ' 雷霆大字 check(s) failed'); process.exit(1) }

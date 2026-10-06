@@ -111,9 +111,12 @@ const NAMESPACE = LEGACY_NAMESPACE;
 const FIELD_DEFAULTS = {
   enabled: '1',             // 终末地主题 —— default on
   palette: 'valley',        // 主题配色 —— 谷地黄 (walley default)
-  glass: 'off',             // optional local frost; original material by default
-  glassBlur: 'standard',    // 磨砂模糊 —— 磨砂表面的模糊半径 (off/soft/standard/heavy = 0/3/5/10px)
+  glass: 'off',             // 输入框毛玻璃 (off/subtle/standard/strong)
+  chromeGlass: 'standard',  // 顶栏/侧栏毛玻璃，单独控制且默认更低透明度
+  glassBlur: 'standard',    // 磨砂模糊 —— 已开启的磨砂表面共用模糊半径 (off/soft/standard/heavy)
   composerGlow: 'standard', // 输入框泛光 —— 开始新对话页输入框四周的矩形泛光 (off/soft/standard/strong)
+  bottomGlow: 'standard', // 对话底侧泛光强度 (off/soft/standard/strong)
+  bottomGlowDispersion: '1', // 轻微色散后处理 —— default on
   bokeh: 'standard',        // 中央散景 —— 等高线在画面对话中轴线虚化 (off/subtle/standard/strong)
   bokehWash: 'standard',    // 散景压暗 —— 虚化区域内进一步淡化等高线 (off/subtle/standard/strong)
   radius: 'square',         // 主题圆角 —— 直角
