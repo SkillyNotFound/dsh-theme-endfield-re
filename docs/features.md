@@ -111,19 +111,32 @@
 | --- | --- | --- |
 | 输入框 | `[data-composer-card]` | 自带边框 |
 | 左侧栏 | `[class*='_frame'] > [class*='_sidebarCol']` | 同时承载泛光；**右侧** 1px 边界线 |
+| 顶栏（Windows） | `[class*='_frame']::before` | 与侧栏**同一材质**：同填充、同 α 档、同模糊、同下边界线 |
 | 右侧面板 | `[data-dockkit-host='dock'] > [class*='_tabHost']` | —— |
 
-**顶栏（Windows）刻意不上霜**，这是硬约束而不是遗漏。最小化 / 最大化 / 关闭是 Electron 的 `titleBarOverlay`，即**原生**按钮，底色不由 CSS 绘制：桌面端 preload 用一个隐藏探针读 `--dsw-specific-sidebar-fill`，经 `dsh-desktop:windows-appearance` 上报给主进程，由它填充标题栏区域。宿主也正是用同一个令牌给顶栏上色，所以**两者天生一致**；而只要样式表往顶栏上加任何色调，这个一致性就断了，原生按钮会坐在一个「窗口里别处都没有」的颜色上——这正是反馈里的「最小化/最大化/关闭底色常态死黑」。主题没有能力改这些按钮的颜色，所以顶栏保持宿主的填充，霜止于侧栏；顶栏只保留那条 1px 边界线（静态 `box-shadow`）。实测两边必须逐字相等：
+**Windows 网页顶栏也算一处表面。** 用户要求顶栏与侧栏看起来连成一片，因此两者使用相同的填充/α 与模糊令牌。`lib/preload-app.cjs` 的独立探针会读取侧栏填充令牌并上报原生外观颜色，但这不足以证明原生 caption 控件如何与 CSS 顶栏组合；本主题测试也不覆盖原生 caption 绘制。测试验证的是浏览器内顶栏与侧栏的计算填充、模糊一致，以及顶栏背景透出图案。
 
-| 配色模式 | 探针上报 | 顶栏计算值 |
-| --- | --- | --- |
-| 暗色 | `rgb(16, 17, 16)` | `rgb(16, 17, 16)` |
-| 亮色 | `rgb(232, 232, 226)` | `rgb(232, 232, 226)` |
+**只有宿主实际 fixed 的按钮才需要补偿位移。** Windows 下 toggle 在展开/折叠两态都固定于 (12,6)；new-session 只有在 rail 状态固定于 (48,6)。展开态的 new-session 是 logoRow 之后的普通 flex 子项（fixture 中 y=94），绝不能被提升到 titlebar；它的 label、mask、content 同样不是 fixed 控件。
 
-**泛光长在侧栏自己身上，不是一个覆盖层。** 高光与强调色辉光是侧栏列自身 `background-image` 的两层梯度（门控在等高线挂载上）。早先那版把它做成 `[class*='_frame']::after` 的 L 形覆盖层，那个形状被撤掉了，原因很具体：
+```css
+html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']
+  > [class$='_sidebarCol'] :is(
+    button[class*='_toggle'],
+    [class*='_collapsed'] button[class*='_newSession']
+  ) {
+  transform: translateY(calc(-1 * var(--dsh-windows-titlebar-height)));
+}
+```
 
-- **`z-index` 非 auto 的定位伪元素会盖住所有非定位后代。** 侧栏列是 `position: static`，于是覆盖层盖住了它内部的内容；而侧栏折叠按钮 `.BynINW_toggle` 是 `position: fixed; z-index: 30`，它的包含块必须是视口——「折叠按钮消失」就是这类错误的典型症状。
-- **`backdrop-filter` 会为 fixed 后代建立包含块。** 任何祖先一旦带上模糊/滤镜/变换，这个 fixed 按钮就会飞走。所以 `test/glass.test.js` 断言：开霜前后按钮位置**逐像素不变**。
+`backdrop-filter` 建立 fixed 后代的包含块，所以磨砂开启时将其视觉位置上移顶栏高度；磨砂关闭时没有该包含块，宿主自己的 y=6 已正确，位移必须一起关闭。磨砂开启时列的 `overflow` 也必须可见，否则位于列盒子上方的按钮会被裁掉。`transform` 会改变 `getBoundingClientRect()` 的渲染坐标；测试按实际坐标和 hit target 断言。
+
+上一轮误用宽泛的 `[class*='_newSession']`，既匹配展开态按钮，也匹配其子元素，导致 action 绘制到 y=54 覆盖品牌，并把内部 label 单独上移。当前规则用 `button` 与 collapsed ancestor 收窄目标；展开态不再位移任何 action descendants。
+
+Windows rail 的 wide 计算是 `wide = !collapsed`：折叠时宿主本身不渲染品牌和 wide-only 的新建会话文字。不要额外隐藏 label，也不要改变 logoRow 的 40px 高度或添加 40px 左内缩。扩展态 logo row 从 y=46 开始，鱼形 mark 与 HARNESS 字标在此行，titlebar toggle 在 y=6；两者分属不同垂直区域。测试覆盖磨砂开/关、展开/折叠，以及 mark/wordmark/action/toggle 的可见性、分离布局和点击命中。**黄色泛光是顶栏与侧栏共用的一层，不是两处各画各的。** 唯一的径向渐变挂在铺满 frame 的等高线底板上，中心对准左上角交界；因此同一片黄光穿过顶栏，并沿侧栏向下衰减。顶栏与侧栏各自只保留白色材质高光，不再各自重启黄色径向光晕。两片毛玻璃从同一个底板取景，开等高线时共享泛光；关等高线时不显示泛光。
+
+顶栏看起来曾经「没有模糊」，尽管计算样式里已经有 `backdrop-filter`：宿主的 `frame::before` 默认画在 `z-index:0` 等高线层下面，锋利的等高线又盖回了顶栏。现在顶栏带升到 `z-index:1`，在等高线之上真实模糊它；侧栏列升到 `z-index:2`，让列自身 stacking context 里的固定控件仍能盖过顶栏。浏览器回归测试对着锐利条纹底板比较开/关模糊时的**实际像素**，并验证整套 chrome 只有一个黄色径向光晕。
+
+早先那版把泛光做成 `[class*='_frame']::after` 的前景 L 形覆盖层，那个形状被撤掉了：非 auto `z-index` 的前景伪元素会压住侧栏内容与控件。把唯一黄光放在共享底板上，既能让两块毛玻璃透出同一片光，又不需要覆盖层或新建 fixed 包含块。`backdrop-filter` 仍会为 fixed 后代建立包含块，因此列开霜时的 `transform` / `overflow: visible` 补偿保留，开关状态与按钮实际矩形由 `test/chrome-glass.test.js` 覆盖。
 
 **填充必须是「色调」而不是「板子」，模糊也必须小**——两个范围由同一个事实定死：这些表面是**半透明**的，背后的等高线正是它们的质感来源。亮色 α .30/.42/.52、暗色 .30/.40/.52；半径上限 8px。实测（一个玻璃盒子压在 10px/40px 条纹上，`backdrop-filter` 确实生效的最小页面）：
 

@@ -193,6 +193,69 @@ const CASES = [
     mutate: (s) => s.replace(/--edge-glow-level:\s*1;\s*\}/, '--edge-glow-level: 0.7; }'),
     expect: /bloom ladder|shipped/,
   },
+  /* --- sidebar surface and exact fixed-control targeting. Browser chrome tests also
+     assert the expanded brand/action geometry and hit targets. --- */
+  {
+    name: "the sidebar's own surface stops being cleared (the frost goes invisible again)",
+    /* The guard matches the SHAPE (glass gate + sidebar column + inner surface), not
+       this exact string, so the injection has to break a part of that shape. Dropping
+       the gate is the realistic regression: the rule then also fires with 磨砂玻璃 off,
+       and a guard that accepted it would stop pinning the gate at all. */
+    mutate: (s) => s.replace(
+      "body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root']",
+      "[class*='_frame'] > [class$='_sidebarCol'] [class*='_root']"),
+    expect: /no rule clears the sidebar's own surface/,
+  },
+  /* --- the band is a surface, and the control belongs to it --- */
+  {
+    name: 'the titlebar band stops being frosted (the top bar splits off from the sidebar again)',
+    mutate: (s) => s.replace(
+      "html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {",
+      "html[data-windows-titlebar] body[data-endfield-glass] [class*='_goneframe']::before {"),
+    expect: /no frosted titlebar-band rule/,
+  },
+  {
+    name: 'the titlebar blur goes behind the contour sheet again',
+    mutate: (s) => s.replace(
+      /(\n\s*z-index:\s*)1;(\s*\n\s*\}\s*\n\s*\/\* ---------- the titlebar controls)/,
+      (_match, before, after) => before + '0;' + after),
+    expect: /titlebar band is still underneath the contour sheet/,
+  },
+  {
+    name: 'the shared yellow bloom is removed from its common sheet',
+    mutate: (s) => s.replace(
+      /background-image:\s*radial-gradient\(ellipse 42% 32% at 0% 2%,/,
+      'background-image: linear-gradient(ellipse 42% 32% at 0% 2%,'),
+    expect: /yellow glow is not one shared contour-sheet layer/,
+  },
+  {
+    name: 'the control stops being shifted back into the band (it drops into the sidebar)',
+    mutate: (s) => s.replace(
+      /transform:\s*translateY\(calc\(-1 \* var\(--dsh-windows-titlebar-height\)\)\);\s*\n(\s*)\}/,
+      'top: 6px;\n$1}'),
+    expect: /not shifted back into the band/,
+  },
+  {
+    name: 'the expanded new-session button is shifted over the logo row',
+    mutate: (s) => s.replace(
+      ":is(button[class*='_toggle'], [class*='_collapsed'] button[class*='_newSession'])",
+      ":is(button[class*='_toggle'], button[class*='_newSession'])"),
+    expect: /not shifted back into the band/,
+  },
+  {
+    name: 'new-session label descendants are included in the shift selector',
+    mutate: (s) => s.replace(
+      "[class*='_collapsed'] button[class*='_newSession']",
+      "[class*='_collapsed'] [class*='_newSession']"),
+    expect: /not shifted back into the band/,
+  },
+  {
+    name: 'the sidebar column starts clipping the control again',
+    mutate: (s) => s.replace(
+      /(> \[class\$='_sidebarCol'\] \{\s*\n\s*)overflow:\s*visible;/,
+      '$1overflow: hidden;'),
+    expect: /sidebar column still clips the titlebar controls/,
+  },
 ]
 
 let bad = 0

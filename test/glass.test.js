@@ -11,9 +11,10 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
   for(const dark of [false,true])for(const palette of ['valley','wuling']) {
     await browser.evaluate(`document.body.toggleAttribute('data-ds-dark-theme',${dark});__prefs.setItem('dsh-theme-endfield-palette',${JSON.stringify(palette)})`)
     /* The level moves OPACITY only; the radius is 磨砂模糊's job and so is constant here.
-       Dark is its own row of the ladder, not a copy of light's. */
-    const LADDER = dark ? [['subtle',.30],['standard',.40],['strong',.52]]
-                        : [['subtle',.30],['standard',.42],['strong',.52]]
+       What makes the tint visible at all is the FILL being well off --dsw-alias-bg-base:
+       a fill near the base composites straight back to the base (that was the bug, and it
+       was invisible to every alpha value). The alpha ladder is what separates the levels. */
+    const LADDER = [['subtle',.22],['standard',.34],['strong',.46]]
     for(const [level,alpha] of LADDER){
       await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass',${JSON.stringify(level)})`)
       const material=await browser.evaluate(`(()=>{const e=document.querySelector('[data-composer-card]'),s=getComputedStyle(e);return {filter:s.backdropFilter,background:s.backgroundColor,box:JSON.stringify(e.getBoundingClientRect().toJSON())}})()`)
@@ -21,6 +22,36 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
       assert.match(material.background,new RegExp(String(alpha).replace('.','\\.')),'level '+level+' must set its own opacity')
       assert.equal(material.box,original)
     }
+    /* THE LITMUS TEST for this whole feature, and the one that was missing. A fill whose
+       luminance sits near --dsw-alias-bg-base composites back to the page colour, so the
+       frost is present, wins the cascade, and is still invisible. Assert the OUTCOME: the
+       sidebar's painted colour (fill over the page base) must be clearly off the base. */
+    const fog=await browser.evaluate(`(function(){
+      const body=getComputedStyle(document.body)
+      /* --dsw-alias-bg-base may come back as #101110 (hex, from this theme's own token
+         override) while computed backgrounds come back as rgb(). Handle both, or the
+         numbers silently become #101110 -> [1,0,1,1,1,0] and the check is nonsense. */
+      const rgb=s=>{
+        s=String(s).trim()
+        if(s.charAt(0)==='#'){
+          let h=s.slice(1)
+          if(h.length===3) h=h.split('').map(function(c){return c+c}).join('')
+          return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]
+        }
+        const m=s.match(/[\\d.]+/g)||[]
+        return m.map(Number).slice(0,3)
+      }
+      const base=rgb(body.getPropertyValue('--dsw-alias-bg-base'))
+      const fill=rgb(body.getPropertyValue('--edge-glass-fill'))
+      const alpha=Number(body.getPropertyValue('--edge-glass-alpha'))
+      const side=rgb(getComputedStyle(document.querySelector('.BynINW_sidebarCol')).backgroundColor)
+      const L=c=>0.2126*c[0]+0.7152*c[1]+0.0722*c[2]
+      const comp=fill.map((v,i)=>Math.round(base[i]*(1-alpha)+v*alpha))
+      return {base,fill,alpha,comp,side,
+              dComp:Math.abs(L(comp)-L(base)), dSide:Math.abs(L(side)-L(base))}
+    })()`)
+    assert.ok(fog.dComp>=4,'the glass fill must composite clearly off the page colour (fill '+JSON.stringify(fog.fill)+' over base '+JSON.stringify(fog.base)+' at '+fog.alpha+' gives '+JSON.stringify(fog.comp)+'; a fill near the base makes the frost invisible)')
+    assert.ok(fog.dSide>=1,'the sidebar must actually paint that composite (page '+JSON.stringify(fog.base)+' -> sidebar '+JSON.stringify(fog.side)+')')
     /* 磨砂模糊 owns the radius for every surface. The values are deliberately small: the
        frost is a tint, so the backdrop carries its texture, and a 2px contour stroke does
        not survive a large gaussian. 'off' must be a REAL 0, and the ladder monotone. */
@@ -50,32 +81,51 @@ const {launch,boot}=require('./fixtures/chrome-cdp.js')
     assert.notEqual(panel.pane.background,'rgba(0, 0, 0, 0)','the docked pane surface must carry the glass fill')
     assert.equal(panel.shell.filter,'none','the panel shell is a full-height overlay and must never be frosted')
     assert.equal(panel.shell.background,'rgba(0, 0, 0, 0)','the panel shell must stay transparent so the conversation column is not flattened')
-    /* The sidebar column takes the frost AND the glow, on itself. It used to address
-       [data-slot='sidebar'], which no shipped bundle emits, so the sidebar silently got
-       nothing at all; a dedicated rule is what makes it carry the same fill as the
-       composer. The glow is part of its own background now, NOT an overlay: a positioned
-       pseudo with a non-auto z-index paints over in-flow descendants, and this frame
-       hosts chrome (.BynINW_toggle is position:fixed + z-index:30) that must not be
-       covered or have its fixed containing block broken by a backdrop-filter. */
+    /* The sidebar column carries the frost and a local specular sheen, but NOT an
+       independent yellow radial bloom. The single yellow glow belongs to the full-frame
+       contour sheet so it remains one continuous light source across both glass faces. */
     const surfaces=await browser.evaluate(`(()=>{
       const read=(e,pe)=>{const s=getComputedStyle(e,pe||null);return{
         filter:s.backdropFilter||s.webkitBackdropFilter, background:s.backgroundColor,
-        image:s.backgroundImage, shadow:s.boxShadow, position:s.position}}
+        image:s.backgroundImage, shadow:s.boxShadow, position:s.position, z:s.zIndex}}
       const side=document.querySelector('.BynINW_sidebarCol')
       const frame=document.querySelector('.BynINW_frame')
       return {composer:read(document.querySelector('[data-composer-card]')),
               sidebar:read(side), sidePosition:getComputedStyle(side).position,
-              band:read(frame,'::before'), frameAfter:read(frame,'::after')}
+              band:read(frame,'::before'), frameAfter:read(frame,'::after'),
+               sharedGlow:read(frame.querySelector('[data-endfield-contour]'))}
     })()`)
     assert.match(surfaces.sidebar.filter,/blur\(4px\)/,'the sidebar column must carry the frost (the old [data-slot=sidebar] rule matched nothing)')
     assert.equal(surfaces.sidebar.background,surfaces.composer.background,'sidebar and composer must share one fill')
     assert.match(surfaces.sidebar.shadow,/inset/,'the sidebar needs its right-edge boundary line (the host sets border-right:none on Windows)')
-    assert.match(surfaces.sidebar.image,/gradient/,'the glow lives in the sidebar\'s own background, not on an overlay')
-    /* The titlebar band must keep the host's fill: the native caption buttons are filled
-       from a probe reading --dsw-specific-sidebar-fill, so tinting the band desyncs them. */
-    assert.equal(surfaces.band.filter,'none','the Windows titlebar band must never be frosted (its colour is reported to the native caption buttons)')
-    assert.equal(surfaces.band.image,'none','the band must not take the glow either')
+    assert.match(surfaces.sidebar.image,/linear-gradient/,'the sidebar keeps its local specular sheen')
+    assert.doesNotMatch(surfaces.sidebar.image,/radial-gradient/,'the sidebar must not restart a separate yellow bloom')
+    assert.match(surfaces.sharedGlow.image,/radial-gradient/,'the contour sheet carries the one shared yellow bloom')
+    assert.equal((surfaces.sharedGlow.image.match(/radial-gradient\(/g)||[]).length,1,'there is exactly one shared yellow bloom across the chrome')
+    /* The titlebar band is the SAME MATERIAL as the sidebar: same fill and alpha, the
+       same radius, the same edge. It used to be excluded here on the premise that
+       tinting it desyncs the native caption buttons -- but their colour comes from
+       lib/preload-app.cjs, which resolves the TOKEN on a probe span of its own
+       (background-color: var(--dsw-specific-sidebar-fill)), not from this box. So the
+       assertion is the outcome instead: band and sidebar composite to one colour. */
+    const bandFill=await browser.evaluate(`(()=>{const p=document.createElement('span')
+      p.style.cssText='position:fixed;visibility:hidden;background-color:var(--dsw-specific-sidebar-fill)'
+      document.body.append(p);const c=getComputedStyle(p).backgroundColor;p.remove();return c})()`)
+    assert.match(surfaces.band.filter,/blur\(4px\)/,'the Windows titlebar band carries the same frost as the sidebar')
+    assert.equal(surfaces.band.background,surfaces.sidebar.background,'band and sidebar must share one fill (the frost row promises one material across the chrome)')
+    assert.equal(surfaces.band.background,surfaces.composer.background,'the band takes the same fill as the composer, like the sidebar does')
+    assert.notEqual(surfaces.band.background,bandFill,'the band is tinted: the caption probe resolves the TOKEN on its own span, not this box')
+    assert.match(surfaces.band.image,/linear-gradient/,'the band keeps its local specular sheen on top of the frost fill')
+    assert.doesNotMatch(surfaces.band.image,/radial-gradient/,'the band must not restart a separate yellow bloom')
+    assert.equal(surfaces.band.z,'1','the band must paint above the z-index:0 contour sheet so backdrop blur is visible')
     assert.match(surfaces.band.shadow,/inset/,'the titlebar band keeps its bottom boundary line')
+    /* The band's tint must track the level, not sit at one fixed alpha. */
+    for(const [level,alpha] of [['subtle',.22],['standard',.34],['strong',.46]]){
+      await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass',${JSON.stringify(level)})`)
+      const band=await browser.evaluate(`getComputedStyle(document.querySelector('.BynINW_frame'),'::before').backgroundColor`)
+      assert.match(band,new RegExp(String(alpha).replace('.','\\.')),'强度='+level+' must reach the titlebar band too')
+    }
+    await browser.evaluate(`__prefs.setItem('dsh-theme-endfield-glass','standard')`)
     /* No overlay pseudo at all: that shape is what covered the collapse button. */
     assert.equal(surfaces.frameAfter.image,'none','the frame must not paint a glow overlay (it would cover in-flow chrome)')
     /* The sidebar collapse control is position:fixed against the VIEWPORT. A theme rule

@@ -22,7 +22,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const host = require(path.join(ROOT, 'index.js'));
-const { AudioRuntime, PREF } = require(path.join(ROOT, 'lib', 'audio.js'));
+const { AudioRuntime, PREF, soundFileName } = require(path.join(ROOT, 'lib', 'audio.js'));
 const { renderWav, scaleWavVolume, parseWav } = require(path.join(ROOT, 'lib', 'tone.js'));
 const { SLOTS, SLOT_IDS } = require(path.join(ROOT, 'lib', 'slots.js'));
 
@@ -78,11 +78,11 @@ check(host.hasVisibleText(undefined) === false, 'a missing message is not a fina
  * 3. Sound generation and volume scaling
  * ------------------------------------------------------------------ */
 
-const tone = renderWav(SLOTS['turn-done']);
+const tone = renderWav(SLOTS.boot);
 const parsed = parseWav(tone);
 check(parsed !== undefined && parsed.bitsPerSample === 16,
   'the synthesized slot is a 16-bit PCM WAV');
-check(tone.length === 44 + Math.floor(44100 * SLOTS['turn-done'].duration) * 2,
+check(tone.length === 44 + Math.floor(44100 * SLOTS.boot.duration) * 2,
   'the WAV length matches the declared duration');
 
 const scaled = scaleWavVolume(tone, 50);
@@ -100,13 +100,50 @@ check(scaledPeak > 0 && scaledPeak < sourcePeak * 0.6,
   `50% volume roughly halves the peak (${sourcePeak} -> ${scaledPeak})`);
 check(scaleWavVolume(tone, 100) === tone, '100% volume is a no-op that returns the same buffer');
 
+/* Every slot must ship a sound, but the two kinds of default are checked
+   differently: a synthesized slot is verified byte-for-byte against its note
+   definition, while a recorded take cannot be compared to a tone at all — what
+   matters there is that the committed file is a playable 16-bit PCM WAV (a
+   truncated or re-encoded drop-in is the realistic failure, and it would be
+   played by the host with no other symptom).
+
+   The file name comes from the slot table, NOT from the slot id: the takes ship
+   under the names they were authored with (`turn-done` -> `end.wav`). Reading it
+   from the table is what keeps this loop honest — hard-coding `<id>.wav` here
+   would test a name no slot answers to. */
+const RECORDED = []
+const NAME_TO_SLOT = {}
 for (const id of SLOT_IDS) {
-  const bundled = path.join(ROOT, 'sounds', `${id}.wav`);
-  if (!fs.existsSync(bundled)) { fail(`bundled sound ${id}.wav is missing`); continue; }
+  const name = SLOTS[id].file;
+  check(typeof name === 'string' && /\.wav$/.test(name), `slot ${id} declares a wav file name (${name})`);
+  if (NAME_TO_SLOT[name] !== undefined) fail(`two slots share the file name ${name} (${NAME_TO_SLOT[name]}, ${id})`);
+  NAME_TO_SLOT[name] = id;
+  const bundled = path.join(ROOT, 'sounds', name);
+  if (!fs.existsSync(bundled)) { fail(`bundled sound ${name} (${id}) is missing`); continue; }
   const bytes = fs.readFileSync(bundled);
+  if (SLOTS[id].shipped === 'recorded') {
+    RECORDED.push(id)
+    const header = parseWav(bytes);
+    check(header !== undefined && header.bitsPerSample === 16 && header.channels > 0,
+      `bundled sounds/${name} (${id}) is a playable recorded take (${header === undefined
+        ? 'not a PCM WAV'
+        : `${header.sampleRate} Hz ${header.channels}ch ${header.bitsPerSample}bit, ${bytes.length} bytes`})`);
+    continue;
+  }
   const same = bytes.equals(renderWav(SLOTS[id]));
-  check(same, `bundled sounds/${id}.wav matches its slot definition`);
+  check(same, `bundled sounds/${name} (${id}) matches its slot definition`);
 }
+check(RECORDED.length === 4 && !RECORDED.includes('boot'),
+  `exactly the four task slots ship a recorded default (${RECORDED.join(', ')})`);
+
+/* The RESOLVER must answer to those names, not to `<slot>.wav`: this is the half
+   that would silently break every sound if the mapping lived only in the bundling
+   script. Pinned against the table (so a rename in one place is caught) AND
+   against the literal the shipped takes actually use. */
+check(soundFileName('turn-done') === SLOTS['turn-done'].file && soundFileName('turn-done') === 'end.wav',
+  `the resolver reads the recorded name from the slot table (turn-done -> ${soundFileName('turn-done')})`);
+check(soundFileName('boot') === 'boot.wav' && soundFileName('nope') === undefined,
+  'the synthesized slot keeps its own name, and an unknown slot resolves to nothing');
 
 /* ------------------------------------------------------------------ *
  * 4. Wiring: what actually plays for an event sequence
@@ -328,16 +365,17 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
       'without the subprocess service the feature reports why instead of throwing');
   }
 
-  // --- resolution order: a user file overrides the bundled tone ---
+  // --- resolution order: a user file overrides the bundled default ---
   {
+    const file = SLOTS['turn-done'].file;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'endfield-audio-'));
-    fs.copyFileSync(path.join(ROOT, 'sounds', 'turn-done.wav'), path.join(dir, 'turn-done.wav'));
+    fs.copyFileSync(path.join(ROOT, 'sounds', file), path.join(dir, file));
     const h = makeHost({ audioSoundDir: dir });
     h.roots.push(rootAgent);
     const audio = host.installAudio(h.ctx, h.scope);
     const resolved = audio.resolve('turn-done');
-    check(resolved !== undefined && resolved.file.startsWith(dir),
-      'a .wav in the configured directory overrides the bundled tone');
+    check(resolved !== undefined && resolved.file === path.join(dir, file),
+      `a ${file} in the configured directory overrides the bundled default (same name as bundled)`);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
@@ -356,15 +394,15 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     const script = encodedIndex >= 0
       ? Buffer.from(String(argv[encodedIndex + 1]), 'base64').toString('utf16le')
       : argv.join(' ');
-    const bundled = path.join(ROOT, 'sounds', 'turn-done.wav');
+    const bundled = path.join(ROOT, 'sounds', SLOTS['turn-done'].file);
     check(/dsh-theme-endfield/i.test(script) && !script.includes(bundled),
       'the player is handed the volume-scaled cache copy, not the bundled file');
   }
 
   /* --- the "still speaking" gate: duration-matched, not a fixed window ---
 
-     A real voice line is not a chime. The user's generated Endfield lines run
-     2.9-4.7 seconds, so a fixed 2.5 s debounce alone would let one announcement
+     A recorded take is not a chime. The four takes that ship as the defaults run
+     4.4-6.4 seconds, so a fixed 2.5 s debounce alone would let one announcement
      start on top of another. `soundDurationMs()` derives the window from the file
      itself, which is why both halves are asserted here: the reading (so the gate
      is not silently 0) and the behaviour (so a long line is not clipped). */
@@ -373,11 +411,12 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'endfield-dur-'));
     const { renderWav } = require(path.join(ROOT, 'lib', 'tone.js'));
     const { SLOTS } = require(path.join(ROOT, 'lib', 'slots.js'));
-    const half = Object.assign({}, SLOTS['turn-done'], { duration: 0.5 });
-    fs.writeFileSync(path.join(dir, 'turn-done.wav'), renderWav(half));
+    const half = Object.assign({}, SLOTS.boot, { duration: 0.5 });
+    const file = SLOTS['turn-done'].file;
+    fs.writeFileSync(path.join(dir, file), renderWav(half));
     const h = makeHost({ audioSoundDir: dir });
     const audio = host.installAudio(h.ctx, h.scope);
-    const read = audio.soundDurationMs(path.join(dir, 'turn-done.wav'));
+    const read = audio.soundDurationMs(path.join(dir, file));
     check(Math.abs(read - 500) <= 2, `soundDurationMs reads a 500 ms file as ${read} ms`);
 
     // Behaviour: with the debounce floor set to zero, the ONLY thing that can
@@ -426,7 +465,8 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
     check(state.body.attention !== undefined && state.body.attention.question === 0,
       'GET /state reports how many intervention requests reached the host');
     const bootSlot = state.body.slots.find((s) => s.id === 'boot');
-    check(bootSlot !== undefined && bootSlot.file !== null && /boot\.wav$/.test(String(bootSlot.file)),
+    check(bootSlot !== undefined && bootSlot.file !== null && SLOTS.boot.file !== undefined
+      && String(bootSlot.file).endsWith(SLOTS.boot.file),
       'the snapshot reports the boot slot resolving to its own file');
 
     // A page load fires exactly this: no body, one query parameter.

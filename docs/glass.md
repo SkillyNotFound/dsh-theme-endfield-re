@@ -26,56 +26,124 @@ others:
 
 Fullscreen panel shells, dialogs, code blocks and menus are excluded.
 
-## The Windows titlebar band is deliberately NOT frosted
+## The Windows titlebar band is the same material (revised)
 
-This is a hard constraint, not an omission. The caption buttons (minimise /
-maximise / close) are an Electron `titleBarOverlay`: **native**, and their fill is
-not painted by CSS. The desktop preload measures a hidden probe whose
-`background-color` is `var(--dsw-specific-sidebar-fill)` and sends the result to
-the main process over `dsh-desktop:windows-appearance`; the shell then fills the
-caption area with it. The host paints the band with that same token, so band and
-caption agree **by construction**.
+The native caption buttons and the web-rendered titlebar band are separate surfaces.
+`lib/preload-app.cjs` reads a sidebar-fill token through its own probe span to report a
+native appearance color; that fact alone does **not** prove how the OS caption controls
+will composite beside a CSS-frosted band. Do not infer or promise native-caption parity
+from the theme tests.
 
-Any tint this stylesheet puts on the band breaks that agreement, leaving the native
-buttons sitting on a colour nothing else in the window uses — which is exactly the
-reported "the minimise/maximise/close buttons have a dead dark background". A theme
-cannot recolour them, because the colour is captured from a token the main process
-never re-reads from CSS in the frosted state. So the band keeps the host's own fill
-and the frost stops at the sidebar; the band still gets its hairline, as a static
-box-shadow.
+The user-facing request is that the **web titlebar band and sidebar read as one surface**.
+The theme applies the same fill/alpha and blur tokens to the frame pseudo-element and the
+sidebar column:
 
-Measured on the real DOM, the probe's reading and the band's computed colour must be
-identical:
-
-| scheme | probe reports | band computes to |
+| surface | fill | blur |
 | --- | --- | --- |
-| dark | `rgb(16, 17, 16)` | `rgb(16, 17, 16)` |
-| light | `rgb(232, 232, 226)` | `rgb(232, 232, 226)` |
+| sidebar column | `rgb(var(--edge-glass-fill) / var(--edge-glass-alpha))` | `blur(var(--edge-glass-blur)) saturate(1.05)` |
+| titlebar band (`frame::before`) | same tokens | same blur token |
 
-`test/glass.test.js` asserts the band carries neither a fill nor a blur nor the glow,
-so this cannot silently regress.
+`test/chrome-glass.test.js` compares their computed fill and blur and checks that the
+band shows the patterned backdrop. These are browser-fixture assertions; they do not test
+the native caption controls.
 
-## The glow lives on the sidebar, not on an overlay
+### The collapse control belongs to the band
 
-The specular sheen and the accent bloom are part of the **sidebar column's own
-`background-image`** (two gradient layers), gated on the contour layer being
-mounted — so with 等高线 off the frosted look is pure tint with no glow.
+Same live round, second defect: `why is the collapse button inside the sidebar`. The
+host declares it as a viewport-fixed control at (12, 6) — inside the band:
 
-An earlier revision put them on a single L-shaped overlay (`[class*='_frame']::after`
-spanning `--dsh-sidebar-width` × `--dsh-frame-top-clearance`, covering sidebar and
-band together). That shape is gone, for two concrete reasons:
+```css
+[data-windows-titlebar] .<hash>_toggle { position: fixed; left: 12px;
+  top: calc((var(--dsh-windows-titlebar-height) - 28px) / 2); z-index: 30 }
+[data-windows-titlebar] .<hash>_collapsed .<hash>_newSession { position: fixed; left: 48px;
+  top: calc((var(--dsh-windows-titlebar-height) - 28px) / 2); z-index: 30 }
+```
 
-- **A positioned pseudo with a non-auto `z-index` paints over every in-flow
-  descendant.** The sidebar column is `position: static`, so the overlay covered it
-  and the chrome inside it. `.BynINW_toggle` — the sidebar collapse control — is
-  `position: fixed; z-index: 30`, and it is a direct child of `body`, so an overlay
-  inside the frame happened not to move it; but the shape was one edit away from
-  being an ancestor of it, and the reported "the collapse button disappeared" is what
-  that class of mistake looks like.
-- **`backdrop-filter` establishes a containing block for fixed descendants.** Any
-  ancestor of the toggle that gains a blur, filter or transform moves a `fixed`
-  button that expects the viewport. The sidebar column is such an ancestor, so the
-  toggle's box is asserted unchanged with the frost on and off.
+But this theme puts a `backdrop-filter` on the sidebar column, and a backdrop-filter
+**establishes a containing block for fixed descendants**. BOTH controls silently inherit
+the column's origin instead of the viewport's, and the column's box starts at the band's
+bottom edge — so both land 40px low. One cause, two reported faces:
+
+* the collapse control drops into the sidebar and is gone as soon as the sidebar is
+  collapsed (the rail does not render it);
+* collapsed, the rail's **new-session** control sits under the band instead of in it —
+  the "small button got stuck below" report.
+
+The shift is the band's height, not a tuned number:
+
+```css
+html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']
+  > [class$='_sidebarCol'] :is(
+    button[class*='_toggle'],
+    [class*='_collapsed'] button[class*='_newSession']
+  ) {
+  transform: translateY(calc(-1 * var(--dsh-windows-titlebar-height)));
+}
+```
+
+The selector is deliberately narrow: the toggle is fixed in both states, while the new
+session button is fixed **only under the collapsed root**. The expanded new-session button
+is normal flex flow after the 40px logo row. It must not be translated; doing so paints it
+at y=54 over the brand row (the regression that hid the logo and text). Nor should the
+button's descendants be translated: the label mask, icon/content, and label are not fixed
+controls. Ordinary CSS class selectors match an element carrying multiple classes; the
+selectors do not need to match only a bare class name.
+
+The shift is gated on `body[data-endfield-glass]`: the frosted column's backdrop filter is
+what establishes the containing block. With frost off, the host positions controls at
+its own y=6; a lingering shift would move them to y=-34. While frost is on, the controls
+paint above the column's box, so the column must also use `overflow: visible`; otherwise
+the host's overflow clip hides them. `transform` changes the rendered bounding rectangle
+as well as paint position; browser tests assert the resulting coordinates and actual hit
+targets, not a fictional unchanged geometry.
+
+The Windows host computes `wide = !collapsed`: in rail state it does not render the brand
+or wide-only new-session label at all. No label-hiding rule is needed. The logo row and
+brand remain at their original host geometry in expanded state; the row begins at y=46,
+while the collapse toggle is in the separate titlebar band at y=6, so no 40px inset is
+needed.
+
+The browser matrix verifies frost on/off × expanded/collapsed: the toggle stays at (12,6),
+the collapsed new-session icon stays at (48,6), and the expanded action remains in flow
+at y=94. It also checks the expanded brand mark, HARNESS wordmark, action label, and
+hit-testing for all four controls. Native caption rendering is outside this fixture.
+
+## One yellow glow shared by the band and sidebar
+
+The yellow accent bloom is a **single radial gradient on the full-frame contour sheet**,
+which spans both surfaces and owns their shared coordinate system. Its center is at the
+chrome corner (the titlebar/sidebar join), so it fades continuously across the band and
+down the sidebar. The two glass faces no longer each restart a separate radial gradient
+at their own bottom-left. They keep only their subtle local white specular sheen; the
+shared yellow bloom is not duplicated.
+
+The contour sheet is the right layer for this because it already spans the frame at
+`z-index:0` behind the frosted surfaces. Both the sidebar column and titlebar band take
+the same translucent fill and `backdrop-filter`, so they sample the same underlying
+light. The bloom is gated by the contour sheet being mounted: with 等高线 off, frost is
+just tint, with no shared glow.
+
+### Why the titlebar band needs `z-index:1`
+
+The host's `frame::before` is an absolutely positioned drag region, but by default its
+stacking order leaves the contour sheet above it. That produced a particularly subtle
+failure: computed style reported `backdrop-filter: blur(4px)`, while the contour lines
+were painted sharply over the titlebar, so the top bar looked unblurred. The theme now
+raises only the band to `z-index:1`, above the `z-index:0` contour; its filter visibly
+blurs the sheet. The filtered sidebar column is raised to `z-index:2` so its fixed
+controls, which are inside the column's own stacking context, still paint above the
+band. The controls retain their own `z-index:30` and remain hit-testable.
+
+`test/chrome-glass.test.js` checks this with more than computed styles: a sharp stripe
+pattern runs under the band, and the test compares actual screenshot pixels with blur on
+and off. It also asserts one radial bloom on the shared contour sheet and no radial bloom
+on either glass face. Thus a regression to separate, restarted yellow glows or to a
+computed-but-visually-hidden band filter fails the browser test.
+
+The earlier full-frame `::after` overlay is still not used: it painted over chrome and
+risked masking controls. A background on the contour sheet gives us one shared glow
+under both materials without adding a foreground overlay or a new fixed-containing
+ancestor.
 
 ## Why the tint is light and the blur is small
 
@@ -129,6 +197,56 @@ surface by substring (`_tabHost`, `_emptyTabHost`), because DockLayout's class n
 carry a position suffix (`_tabHost_<hash>_<n>`) while the layout module's do not
 (`<hash>_centerCol`).
 
+## The sidebar's own surface (fixed after the first live desktop round)
+
+The sidebar column is **not** the sidebar's only box. The shipped `SidebarRoot` sheet
+paints a second one inside it:
+
+```css
+.<hash>_sidebarCol { background: var(--dsw-specific-sidebar-fill) }   /* column  */
+.<hash>_root       { background: var(--dsw-specific-sidebar-fill) }   /* surface */
+```
+
+Both use the same token — and this theme sets that token to the **same value** it gives
+`--dsw-alias-bg-base` (`#101110` dark / `#e8e8e2` light). The duplication is therefore
+invisible in the cascade: the column painted the frost, the surface painted the page
+colour over it, and the two boxes read as one flat area. Clearing the *columns* (the
+`_centerCol` / `_detailsCol` / `_sidebarCol` rules) cannot fix it, because a descendant
+that paints its own fill is not covered by clearing its parent.
+
+Read off the RUNNING desktop window (`PrintWindow`, dark mode, 磨砂玻璃 standard,
+磨砂模糊 standard):
+
+| region | painted colour | verdict |
+| --- | --- | --- |
+| sidebar band | `#101110` — 91.1% of sampled pixels, one flat colour | no frost, no contour, no boundary |
+| composer card | `#3c4135` → `#3f4537` (mean lum 68.8, 346 distinct colours) | the material, working |
+
+So the fix is one rule, scoped exactly like the rest of the sheet:
+
+```css
+body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root'] {
+  background: transparent !important;
+}
+```
+
+It is colour-neutral by construction (the two boxes hold the same value in both
+schemes), it is gated on 磨砂玻璃 so a reader who never asked for the frost keeps the
+host's own painting, and it is scoped to the sidebar column so the other 26 shipped
+`*_root` classes are untouched. With the frost on, the same band measures a **29.7
+luminance spread over 725 distinct colours** — the same order as the composer card on
+the same screen.
+
+## Preserve the host's logo-row geometry
+
+The Windows collapse toggle is fixed at (12,6) in the 40px titlebar band. The expanded
+logo row starts below that band at y=46; its fish mark and HARNESS wordmark therefore do
+not overlap the toggle. A prior 40px `padding-left` override was based on a mistaken
+vertical-overlap diagnosis and shifted the complete brand identity unnecessarily. It has
+been removed; the logo row retains the host's own zero horizontal padding plus the brand
+button's 4px inset. The chrome regression test checks the fish mark, HARNESS wordmark,
+new-session label, separate row positions, and hit targets directly.
+
 ## Three host traps this feature sits on
 
 **Class-name schemes differ between modules.** Both Vite conventions ship in the
@@ -164,13 +282,27 @@ while text selection retains the full accent with black text. This addresses
 issue #18 independently of whether glass is enabled.
 
 Validation: `npm run test:glass` (Node 22+, Chrome/Edge; `CHROME_PATH` supported)
-checks four light/dark × valley/Wuling combinations, each level's own opacity,
-every 磨砂模糊 tier on both the composer and the sidebar, stable geometry, AA text
-contrast on hovered/selected cells, reduced-transparency, fullscreen exclusion and
-teardown. It also pins the contracts above: composer and sidebar carry the **same**
-fill, the sidebar keeps its boundary line and the glow, the Windows titlebar band
-takes **no** fill, blur or glow (its colour is reported to the native caption
-buttons), no glow overlay exists on the frame, the sidebar collapse control stays
-`position: fixed` at `z-index: 30` **and does not move** when the frost turns on, the
-panel shell stays transparent with no backdrop filter, and the fixture uses isolated
-temporary profiles and no account or model requests.
+checks four light/dark × valley/Wuling combinations, opacity tiers, blur tiers, text
+contrast, reduced-transparency, fullscreen exclusion and teardown. Its chrome-related
+claims are limited to computed fill/blur equality and the tested sidebar surface/boundary;
+it does not validate native caption rendering or assert that transformed controls keep
+an unchanged rendered rectangle.
+
+`npm run test:chrome` uses the shipped `SidebarRoot.module.css` and `Layout.module.css`
+strings with the Windows host structure, and asserts:
+
+* the sidebar's own surface paints no fill, the column carries the blur, and the boundary
+  line is an inset hairline;
+* the sidebar and titlebar band have equal computed fill/blur; screenshot pixels in the
+  band vary over the patterned backdrop;
+* the toggle paints inside the titlebar band and has a real hit target;
+* across `frost on/off × expanded/collapsed`, the toggle stays at host y=6, the collapsed
+  new-session icon stays in the band, and the expanded new-session button remains in flow;
+* in expanded state, fish mark, HARNESS wordmark, and new-session text remain visible,
+  separate, and hit-testable; in collapsed Windows state the host itself omits the brand
+  and wide-only new-session label;
+* with frost off, the host's own clipping and sidebar paint return.
+
+Static `check.js`/`selftest.js` also reject two selector regressions: shifting the
+expanded new-session button and matching its label/content descendants. The browser tests
+assert the rendered rectangles after transforms, not an unchanged pre-transform geometry.

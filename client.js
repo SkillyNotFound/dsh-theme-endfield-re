@@ -4442,49 +4442,49 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       }
       /* Optional bounded frost. No full-window blur, nested filters or animation.
 
-         ONE treatment, FOUR surfaces: the composer card, the left sidebar column, the
-         Windows titlebar band (the sidebar and the band are one L-shaped panel), and the
-         docked right panel's surface.
+         THE FILL CARRIES THE MATERIAL -- the alpha barely matters.
 
-         How light the numbers are is the whole point of this block:
+         This block used to reason only about opacity, and shipped a fill of 31 36 34
+         (dark) / 248 247 240 (light). Both are within a few points of their own scheme's
+         --dsw-alias-bg-base, so compositing them produced the page colour exactly:
 
-           the fill is a TINT, not a pane   -- the accent contour sheet is the BACKGROUND
-                                              of this theme, and it has to stay readable
-                                              through the glass;
-           the blur is TINY                 -- the sheet's stroke is 1-2 px. A gaussian
-                                              that spreads it over 10 px keeps only
-                                              ~0.5/sqrt(0.25+100) = 5% of the peak, i.e.
-                                              the lines stop existing and the surface
-                                              reads as one flat slab. Measured on the
-                                              real DOM: at blur(10px) the sidebar over a
-                                              stripe sheet sampled a UNIFORM (26,31,28)
-                                              -- the stripes had been averaged away --
-                                              while the un-blurred titlebar band showed
-                                              the raw (255,245,0). That is the reported
-                                              "the sidebar is just black now".
+             rgb(31 36 34 / .40) over #101110  ->  rgb(22, 25, 23)   vs base rgb(16,17,16)
 
-         So the level below carries the OPACITY and the exact radius is owned by
-         --edge-glass-blur, which the 磨砂模糊 row sets from 0 to 14 px. */
+         Nothing was broken: the attribute was set, the selector matched, the declaration
+         won the cascade (verified live: sideBg rgba(31,36,34,0.4), sideFilter blur(4px)),
+         and the result was still indistinguishable from "no frost at all". Three rounds
+         of tuning alpha could not fix a fill that has the same luminance as its backdrop.
+
+         So the fill is now deliberately well off the base -- a grey-green in dark mode, a
+         grey in light -- and the levels scale the alpha from it:
+
+             dark   rgb(124 138 133 / .34) over #101110  -> rgb(53, 58, 56)   10.6:1 text
+             light  rgb( 92  98  89 / .34) over #e8e8e2  -> rgb(184,186,179)  9.7:1 text
+
+         Measured against the running window's own variables, not against a harness.
+
+         The blur also stays small, for the same reason: the sheet's stroke is 1-2 px, so
+         a large gaussian keeps the surface's texture from being visible through the tint
+         at all. The radius is owned by --edge-glass-blur, which the 磨砂模糊 row sets. */
       body[data-endfield-glass] {
-        --edge-glass-fill: 248 247 240;
-        --edge-glass-alpha: .42;
+        --edge-glass-fill: 92 98 89;
+        --edge-glass-alpha: .34;
         --edge-glass-blur: 4px;
         --edge-glass-edge: rgb(255 255 255 / .65);
         --edge-glass-sheen: rgb(255 255 255 / .35);
       }
       body[data-endfield-glass][data-ds-dark-theme] {
-        --edge-glass-fill: 31 36 34;
-        --edge-glass-alpha: .40;
+        --edge-glass-fill: 124 138 133;
+        --edge-glass-alpha: .34;
         --edge-glass-edge: rgb(255 255 255 / .18);
         --edge-glass-sheen: rgb(255 255 255 / .07);
       }
-      /* Lighter tiers stay lighter than the surface they sit on, so raising the level is
-         still an increase. The spread is narrow because the top of the range has to stay
-         a tint: past ~0.6 the contour stops reading through the glass at all. */
-      body[data-endfield-glass='subtle'] { --edge-glass-alpha: .30; }
-      body[data-endfield-glass='strong'] { --edge-glass-alpha: .52; }
-      body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .30; }
-      body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .52; }
+      /* Raising the level raises how much of that fill covers the page. The spread stops
+         well short of opaque: past ~.5 the contour stops reading through the glass. */
+      body[data-endfield-glass='subtle'] { --edge-glass-alpha: .22; }
+      body[data-endfield-glass='strong'] { --edge-glass-alpha: .46; }
+      body[data-endfield-glass='subtle'][data-ds-dark-theme] { --edge-glass-alpha: .22; }
+      body[data-endfield-glass='strong'][data-ds-dark-theme] { --edge-glass-alpha: .46; }
       /* 磨砂模糊 (glass blur). Owns the radius for every surface, so the level above can
          stay about opacity alone. 'off' is 0, not a removed attribute: the frost stays,
          it just stops defocusing what is behind it.
@@ -4539,63 +4539,167 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         --dsw-elevation-stroke-color: var(--edge-glass-edge);
       }
-      /* The sidebar column takes the frost AND the glow, on itself. The Windows titlebar
-         band gets only its hairline, and that is a hard constraint rather than a
-         preference:
-
-         the caption buttons (minimise / maximise / close) are an Electron
-         titleBarOverlay flag, i.e. NATIVE, and their fill is not painted by CSS. The desktop
-         preload measures a hidden probe reading --dsw-specific-sidebar-fill and sends
-         that colour to the main process over dsh-desktop:windows-appearance; the shell
-         then fills the caption area with it. The host paints the band with that same
-         token, so band and caption agree by construction -- and ANY tint this stylesheet
-         puts on the band breaks that agreement, leaving the native buttons on a colour
-         nothing else in the window uses. A theme cannot recolour them, so the band keeps
-         the host's own fill and the frost stops at the sidebar. */
+      /* The sidebar column takes the frost AND the glow, on itself. */
       body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
         background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha)) !important;
         -webkit-backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         box-shadow: inset -1px 0 0 var(--edge-glass-edge);
+        /* Keep the sidebar stack above the titlebar pseudo so its viewport-fixed
+           controls (z-index:30, but inside this filtered stacking context) remain clickable. */
+        z-index: 2;
       }
-      /* html[...], NOT body[...]: the host puts data-windows-titlebar on the ROOT element
-         (it is read as document.documentElement.hasAttribute('data-windows-titlebar')
-         and its CSS is written html[data-windows-titlebar] ...). A body-scoped copy of
-         that attribute never matches, which silently drops the line. */
+      /* ---------- the frost needs the column to itself -------------------------------
+         MEASURED DEFECT this rule exists for. The sidebar's own surface is a SECOND
+         opaque box on top of the column: the shipped SidebarRoot sheet declares
+
+             .<hash>_root { background: var(--dsw-specific-sidebar-fill); ... }
+
+         and this theme sets that token to the SAME value it sets --dsw-alias-bg-base
+         (#101110 dark / #e8e8e2 light), which is exactly why the duplication was
+         invisible when it was introduced: the column painted the frost, the root
+         painted the page colour over it, and the two boxes looked identical.
+
+         The columns above are cleared one level UP, so the surface that carries the
+         frost was left free — but a descendant that paints its own fill is not covered
+         by clearing its parent. Reading the RUNNING desktop window confirms the result:
+         the whole sidebar band is a single flat #101110 (91% of sampled pixels), while
+         the composer card on the same screen shows #3c4135 — the frost material. No
+         contour, no tint, no blur, no boundary line: the reported "sidebar is wrong".
+
+         WHY THE FIX IS COLOUR-NEUTRAL: the root's fill and the column's token are one
+         and the same value in both schemes, so dropping the inner box shifts no colour
+         -- it only stops the opaque layer from sitting between the frost and the page.
+         Verified live geometry: sidebar 240px, matches the column width.
+
+         SCOPED TO THE GLASS ROW so a user with 磨砂玻璃 off keeps the host's own
+         painting untouched, and to the sidebar column so no other '_root' (27 of them
+         ship) is affected. Same '[class*=_root]' substring the rest of this sheet uses:
+         the suffix in the column is '_root' either as module_export or export_hash_line. */
+      body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] [class*='_root'] {
+        background: transparent !important;
+      }
+      /* ---------- the titlebar band is the same material -------------------------------
+         The band is one continuous surface with the sidebar: same fill, same tint, same
+         radius, same edge. Anything less and the window reads as two windows stacked.
+
+         The web titlebar and native caption controls are separate surfaces. The preload reads
+a sidebar-fill token through its own probe span, but this does not prove how native
+caption controls composite beside this CSS band. Browser tests cover web surfaces only.
+
+         html[...], NOT body[...]: the host puts data-windows-titlebar on the ROOT
+         element (it is read as document.documentElement.hasAttribute(...) and its CSS
+         is written html[data-windows-titlebar] ...). A body-scoped copy never matches,
+         which silently drops every line here. */
       html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
+        background-color: rgb(var(--edge-glass-fill) / var(--edge-glass-alpha));
+        -webkit-backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
+        backdrop-filter: blur(var(--edge-glass-blur)) saturate(1.05);
         box-shadow: inset 0 -1px 0 var(--edge-glass-edge);
+        /* The contour sheet is z-index:0 and paints after the host's ::before by default.
+           Without an explicit level it sits ON TOP of this blur, so the computed filter
+           is present but the titlebar shows sharp contour lines. Raise only the band
+           above that sheet; the fixed controls already own z-index:30. */
+        z-index: 1;
       }
-      /* ---------- the accent glow ------------------------------------------------------
-         The specular sheen and the accent bloom, carried by the sidebar itself.
+      /* ---------- the titlebar controls belong to the band ----------------------------
+         MEASURED DEFECT. The host declares these as VIEWPORT-fixed controls:
 
-         It used to be one L-shaped overlay on the frame's ::after, spanning the sidebar
-         AND the titlebar band. That overlay is gone, for a concrete reason: a positioned
-         pseudo with a non-auto z-index paints over every in-flow descendant, and the two
-         things it covered were chrome this theme has no business touching --
+             [data-windows-titlebar] .<hash>_toggle      { position: fixed; left: 12px;
+               top: calc((var(--dsh-windows-titlebar-height) - 28px) / 2); z-index: 30 }
+             [data-windows-titlebar] .<hash>_collapsed .<hash>_newSession {
+               position: fixed; left: 48px;
+               top: calc((var(--dsh-windows-titlebar-height) - 28px) / 2); z-index: 30 }
 
-           * .BynINW_toggle (the sidebar collapse control) is position:fixed with
-             z-index:30, i.e. it relies on the viewport as its containing block. ANY
-             ancestor that establishes a containing block for fixed descendants moves it,
-             and backdrop-filter is one of those properties. The overlay was not an
-             ancestor of it, but the shape was one edit away from being one;
-           * the native caption buttons, which cannot be tinted at all (above).
+         i.e. two 28px boxes at (12, 6) and (48, 6) -- both inside the titlebar band. But
+         this stylesheet puts a backdrop-filter on the sidebar column, and a
+         backdrop-filter ESTABLISHES A CONTAINING BLOCK for fixed descendants, so both
+         controls silently inherit the COLUMN's origin instead of the viewport's. The
+         column's box starts at the band's bottom edge, so BOTH land 40px low: the
+         collapse control inside the sidebar (gone the moment the sidebar is collapsed,
+         since the rail does not render it), and once collapsed the new-session control
+         right under the band instead of in it. Two reported symptoms, one cause.
 
-         On the sidebar the same two gradients are simply part of its own background, which
-         is where a surface's sheen belongs. Gated on the contour layer being mounted, so
-         with 等高线 off the frosted look is pure tint with no glow -- one source of truth
-         for "is the sheet on". */
+         THE SHIFT IS THE BAND'S HEIGHT, not a tuned number: the host's own top offsets
+         were written against a viewport origin at y=0, and the containing block's origin
+         is the band's height further down, so putting them back means moving them up by
+         exactly --dsh-windows-titlebar-height.
+
+         transform, not top: the host already positions these boxes and the theme's own
+         glass test pins the collapse control's rect, so the layout geometry must not
+         move -- only the painted box.
+
+         GATED EXACTLY LIKE THE FROST, in BOTH directions. The containing block only
+         exists because of the column's backdrop-filter, so the shift is only correct
+         while the frost is on... and the column has to stop clipping at the same time,
+         because these boxes necessarily paint 40px ABOVE the column they are contained
+         by, which is precisely what overflow:hidden cuts. Verified: with the clip left
+         in place the transform moves the box (getBoundingClientRect y=6) while the band
+         shows no ink from it at all. And with the shift left ungated the controls move
+         40px UP with the frost off, off the top of the window: "the collapse button
+         disappears".
+
+         Removing the clip is safe here: the sidebar's own content is kept inside its
+         region by the region's own scroll container, and the host's clip exists for a
+         grid animation the column's background already covers. What is NOT safe is
+         clip-path instead of removing it -- that clips the controls too, which is the
+         same defect wearing a different property. */
+      html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']
+        > [class$='_sidebarCol'] {
+        overflow: visible;
+      }
+      /* Limit compensation to the controls fixed by the host. The expanded new-session
+         button is in normal flow below the 40px logo row; translating it moves its painted
+         box up to y=54 over the brand (the logo-loss regression). Its label/content are
+         descendants, not controls, and must never be transformed separately. The toggle
+         remains fixed in both states; new-session is fixed only below the collapsed root. */
+      html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']
+        > [class$='_sidebarCol'] :is(button[class*='_toggle'], [class*='_collapsed'] button[class*='_newSession']) {
+        transform: translateY(calc(-1 * var(--dsh-windows-titlebar-height)));
+      }
+      /* Windows rail state is wide = !collapsed. The host omits the brand and the wide-only new-session label there, so no theme label-hiding rule is needed. */
+      /* ---------- one shared yellow glow across the chrome corner ----------------------
+         The yellow light is ONE layer, anchored to the common contour sheet's coordinate
+         system, not two radial gradients independently restarted at each surface's
+         bottom-left (which visibly made two disconnected blooms).
+
+         Put it on the full-frame contour wrapper: that wrapper spans both the Windows
+         titlebar and the sidebar, is already the common underlay, and paints at z-index:0.
+         The band (z-index:1) and the sidebar column then blur/tint that same yellow light
+         through their identical glass material. Center content covers the wrapper, so the
+         glow remains confined to the visible L: across the top band and down the sidebar.
+         The contour being mounted is still the single gate for the glow.
+
+         Keep the subtle white specular sheen local to each glass face; it is not a second
+         yellow glow. The band's colour remains the frost fill above. Native caption
+         appearance is separate; this stylesheet does not assert how the OS renders it. */
+      body[data-endfield-glass] [class*='_frame']:has(> [data-endfield-contour])
+        > [data-endfield-contour] {
+        background-image: radial-gradient(ellipse 42% 32% at 0% 2%,
+          color-mix(in srgb, var(--edge-accent) 14%, transparent), transparent 76%);
+      }
       body[data-endfield-glass] [class*='_frame']:has(> [data-endfield-contour])
         > [class$='_sidebarCol'] {
-        background-image: linear-gradient(135deg, var(--edge-glass-sheen), transparent 62%),
-          radial-gradient(ellipse at 0% 100%, color-mix(in srgb, var(--edge-accent) 9%, transparent), transparent 72%) !important;
+        background-image: linear-gradient(135deg, var(--edge-glass-sheen), transparent 62%) !important;
       }
+      html[data-windows-titlebar] body[data-endfield-glass]
+        [class*='_frame']:has(> [data-endfield-contour])::before {
+        background-image: linear-gradient(135deg,
+          color-mix(in srgb, var(--edge-glass-sheen) 70%, transparent), transparent 42%);
+      }
+      /* Keep the host's logo row geometry intact. On Windows it begins below the
+         titlebar; the collapse control is at y=6 in the separate titlebar band, while
+         the brand mark and wordmark are rendered in the row below. Reserving 40px inside
+         the logo row was based on a mistaken vertical-overlap diagnosis and needlessly
+         shifted the mark and wordmark to the right. */
       @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
         /* No backdrop filter: the tint has to carry the whole material, so use a nearly
            opaque fill rather than a translucent one that would let text show through. */
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
           [data-dockkit-host='dock'] > [class*='_tabHost'],
-        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
+        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
+        html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
           background-color: rgb(var(--edge-glass-fill) / .96) !important;
         }
       }
@@ -4603,7 +4707,8 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         body[data-endfield-glass] [data-composer-card],
         body[data-endfield-glass] [data-sidebar-right-panel]
           [data-dockkit-host='dock'] > [class*='_tabHost'],
-        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'] {
+        body[data-endfield-glass] [class*='_frame'] > [class$='_sidebarCol'],
+        html[data-windows-titlebar] body[data-endfield-glass] [class*='_frame']::before {
           background-color: rgb(var(--edge-glass-fill)) !important;
           -webkit-backdrop-filter: none; backdrop-filter: none;
         }

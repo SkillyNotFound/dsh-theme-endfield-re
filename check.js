@@ -312,6 +312,123 @@ if (openIdx < 0) {
       fail('the dark-mode bloom base is missing: body[data-endfield-glow][data-ds-dark-theme] must '
         + 're-point --edge-glow-base at --edge-glow-dark')
     }
+    /* --- 6b. the sidebar's own surface and titlebar fixed controls ---
+       Two defects that shipped because the surfaces the theme paints are NOT the
+       boxes the reader sees. Static half only; the pixel half lives in
+       test/chrome-glass.test.js.
+
+       (a) SidebarRoot paints its OWN fill inside the sidebar column:
+
+               .<hash>_sidebarCol { background: var(--dsw-specific-sidebar-fill) }
+               .<hash>_root       { background: var(--dsw-specific-sidebar-fill) }
+
+       This theme gives that token the same value as --dsw-alias-bg-base, so the
+       second box composites straight back to the page colour and hides the column's
+       frost, the contour and the boundary line — the frost was applying the whole
+       time and could not be seen. Clearing the columns does not cover it, because a
+       descendant that paints its own fill is not affected by clearing its parent.
+
+       (b) Only the host's fixed titlebar buttons receive the 40px compensation; the
+       expanded new-session button and all brand descendants remain in ordinary layout. */
+    const surfaceRule = /body\[data-endfield-glass\][^{]*\[class\$='_sidebarCol'\][^{]*\[class\*='_root'\]\s*\{([^}]*)\}/.exec(stripped)
+    if (surfaceRule === null) {
+      fail('no rule clears the sidebar\'s own surface under body[data-endfield-glass]\n      '
+        + '-> SidebarRoot paints --dsw-specific-sidebar-fill inside the frosted column; the same '
+        + 'value as --dsw-alias-bg-base, so the frost, the contour and the boundary line are all '
+        + 'invisible behind it')
+    } else if (!/(?:^|;)\s*background\s*:\s*transparent\s*!important/.test(surfaceRule[1])) {
+      fail('the sidebar-surface rule does not declare `background: transparent !important`\n      '
+        + '-> the host rule is not !important, but anything weaker than transparent !important '
+        + 're-leaks the fill on a specificity change')
+    } else {
+      pass('the sidebar\'s own surface is cleared while the frost is on')
+    }
+    /* Walk the stylesheet as selector -> body pairs with an index-based brace walker.
+       NOT a regex split: the two-line selectors here (html[...] body[...] frame >
+       sidebarCol :is(...)) and regex lookbehind are both easy to get subtly wrong, and a
+       guard that silently matches nothing is worse than no guard. A selector is the text
+       since the previous depth-0 close brace. */
+    const ruleBlocks = []
+    {
+      let depth = 0, selStart = 0, bodyStart = 0
+      const pending = []
+      for (let i = 0; i < stripped.length; i++) {
+        const ch = stripped[i]
+        if (ch === '{') {
+          if (depth === 0) { pending.push(stripped.slice(selStart, i)); bodyStart = i + 1 }
+          depth++
+        } else if (ch === '}') {
+          depth--
+          if (depth === 0) {
+            const sel = pending.pop()
+            if (sel !== undefined) ruleBlocks.push([sel, stripped.slice(bodyStart, i)])
+            selStart = i + 1
+          }
+        }
+      }
+    }
+    const bandRule = ruleBlocks.find(([sel, body]) => sel.includes('::before') && sel.includes("class*='_frame'")
+      && sel.includes('data-windows-titlebar') && sel.includes('data-endfield-glass') && body.includes('--edge-glass-fill'))
+    if (bandRule === undefined) {
+      fail('no frosted titlebar-band rule\n      '
+        + '-> band and sidebar have to read as one surface. The native caption probe resolves '
+        + '--dsw-specific-sidebar-fill on a span of its own (lib/preload-app.cjs), so tinting this '
+        + 'box cannot desync the caption buttons')
+    } else if (!/background-color\s*:\s*rgb\(var\(--edge-glass-fill\)\s*\/\s*var\(--edge-glass-alpha\)\)/.test(bandRule[1])
+      || !/backdrop-filter\s*:\s*blur\(var\(--edge-glass-blur\)\)/.test(bandRule[1])) {
+      fail('the titlebar band does not take the same fill/alpha and blur as the column\n      '
+        + '-> use --edge-glass-fill/--edge-glass-alpha and --edge-glass-blur, the same pair the '
+        + 'sidebar column uses, or the two surfaces drift apart again')
+    } else if (!/z-index\s*:\s*1\b/.test(bandRule[1])) {
+      fail('the titlebar band is still underneath the contour sheet\n      '
+        + '-> a computed backdrop-filter can be visually hidden if the z-index:0 contour paints '
+        + 'over the band; raise frame::before to z-index:1 so the filter acts on that artwork')
+    } else {
+      pass('the titlebar band carries the same material above the contour sheet')
+    }
+    const glowRule = ruleBlocks.find(([sel, body]) => sel.includes("[data-endfield-contour]")
+      && sel.includes("class*='_frame'") && /background-image\s*:\s*radial-gradient\(/.test(body))
+    const separateGlowRules = ruleBlocks.filter(([sel, body]) =>
+      (sel.includes("class$='_sidebarCol'") || (sel.includes('::before') && sel.includes("class*='_frame'")))
+      && /background-image\s*:[^;]*radial-gradient\(/.test(body))
+    if (glowRule === undefined || separateGlowRules.length > 0) {
+      fail('the yellow glow is not one shared contour-sheet layer\n      '
+        + '-> put the single radial-gradient on the full-frame data-endfield-contour sheet; '
+        + 'do not restart a separate yellow bloom on the sidebar and titlebar')
+    } else {
+      pass('one yellow glow is shared across the band and sidebar')
+    }
+    const SHIFT = /transform\s*:\s*translateY\(calc\(-1 \* var\(--dsh-windows-titlebar-height\)\)\)/
+    const sidebarHook = (sel) => sel.includes("class$='_sidebarCol'") || sel.includes("class*='_sidebarCol'")
+    const shiftRule = (token) => ruleBlocks.find(([sel, body]) => {
+      const rightTarget = token === '_toggle'
+        ? sel.includes("button[class*='_toggle']")
+        : sel.includes("[class*='_collapsed'] button[class*='_newSession']")
+      return sel.includes('data-windows-titlebar') && sel.includes('data-endfield-glass')
+        && sidebarHook(sel) && rightTarget && SHIFT.test(body)
+    })
+    /* The collapse toggle always exists; the new-session button is compensated only in
+       rail state, where the host makes it viewport-fixed. The wide button and its label
+       remain in normal flow. */
+    const missingShift = ['_toggle', '_newSession'].filter((token) => shiftRule(token) === undefined)
+    const clipRule = ruleBlocks.find(([sel, body]) =>
+      sel.includes('data-endfield-glass') && sidebarHook(sel) && !sel.includes('_root')
+      && /overflow\s*:\s*visible/.test(body))
+    if (missingShift.length > 0) {
+      fail('the titlebar control(s) ' + missingShift.join(', ') + ' are not shifted back into the band\n      '
+        + '-> the sidebar column\'s backdrop-filter makes it the containing block for these FIXED '
+        + 'controls, whose boxes then start at the band\'s bottom edge: they land 40px low, inside '
+        + 'the sidebar / under the band, and the collapse control is gone the moment the rail is '
+        + 'collapsed. The shift is the band height, applied with transform (top would move the boxes '
+        + 'the host positions), and it must stay gated on the frost: with the frost off there is no '
+        + 'containing block and the same shift would push both controls off the top of the window')
+    } else if (clipRule === undefined) {
+      fail('the sidebar column still clips the titlebar controls\n      '
+        + '-> they paint ABOVE the column\'s own box, so overflow:hidden cuts exactly the part that '
+        + 'has to be visible (measured: rect y=6, zero inked pixels in the band)')
+    } else {
+      pass('both titlebar controls are shifted back into the band')
+    }
     /* --- 7. the app's font TOKENS must not be redeclared anywhere ---
        Regression guard for a real shipped bug. The theme used to carry
            :root { --dsw-font-family: Arial, ...; --ds-font-family-code: ... }

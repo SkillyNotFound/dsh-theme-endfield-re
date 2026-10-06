@@ -126,9 +126,9 @@ commit/PR if you prefer.
 | Path | What |
 | --- | --- |
 | `lib/tone.js` | PCM WAV synthesizer + WAV parsing + volume rescale (no deps) |
-| `lib/slots.js` | the four slot definitions (notes, envelopes, durations) |
+| `lib/slots.js` | the slot definitions (moments, and — in this fork — whether a slot's shipped default is a generated `tone` or a `recorded` take) |
 | `lib/audio.js` | resolution order, volume cache, platform players, debounce + duration gate |
-| `scripts/build-sounds.js` | regenerates `sounds/*.wav` from `lib/slots.js` (`--check` verifies) |
+| `scripts/build-sounds.js` | regenerates the synthesized `sounds/*.wav` (`--check` verifies); a recorded slot is never written (fork) |
 | `index.js` | slots/fields/settings registration, host event wiring, `/theme-endfield/audio/*` routes |
 | `client.js` | `05 音频` panel (switches, volume, preview, source read-out) |
 | `docs/audio-notifications.md` | the feature's own documentation |
@@ -139,3 +139,12 @@ The voice-pack wav used in development is **not** committed (1.3 MB of generated
 `audioSoundDir` at their own directory, or drop `<slot>.wav` into the workspace; the resolution order
 is custom dir → workspace → Desktop → bundled tone. This keeps the repository free of binary assets
 while making replacement a one-file drop.
+
+> **`dsh-theme-endfield-re` later changed this decision.** The fork ships the voice pack as the
+> factory default for the four task slots (`sounds/start.wav`, `end.wav`, `wait.wav`, `erro.wav` for
+> `turn-start`, `turn-done`, `attention`, `turn-fail` — 48 kHz / 16-bit PCM / stereo, 4.4–6.4 s each,
+> under the names the audio was authored with) and taught `scripts/build-sounds.js` never to
+> regenerate a recorded slot; `boot.wav` keeps the synthesized tone. The per-slot file name lives in
+> `lib/slots.js` and is what the resolver (and a user's own drop-in) uses, so a slot is never
+> addressed by two names. That is a fork-level choice about repo weight and binary assets, not part
+> of the upstream PR this file describes. See [audio-notifications.md §5](audio-notifications.md).

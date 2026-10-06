@@ -101,11 +101,11 @@ node test/settings-scrollbar.test.js # 切换章节不改变面板宽度（滚�
 node test/settings-locale.test.js   # 跟随语言设置（zh/en 词典对齐 + 切换生效，含章节选择条短标签）
 ```
 
-**`settings-scrollbar.test.js`** 守的是「切换章节时上方选择槽长度变化、闪烁」。它把真实面板放进一个**固定高度、`overflow-y:auto` 的滚动容器**里（高度取得很讲究：短章节要放得下、长章节要溢出，否则复现不出来），在最短的「主题」（4 行）与最长的「音频」（11 行）之间来回切换，量 `getBoundingClientRect().width`：加了预留后两者都是 510px，并断言挂载时就写上了 `scrollbar-gutter: stable`、两侧都保留了滚动条宽度的盒子。**最后跑一次反向对照**——把预留去掉再量一次，断言宽度**确实**会变（520 → 510，正好是一个滚动条宽）。没有这条对照，「宽度相同」也可能只是因为 mock 压根没复现这个缺陷。它也是唯一一个给 React 桩提供 `useEffect` 的设置类用例：预留是在**挂载后的 effect** 里做的（提交前 DOM 还不存在），桩若不实现该钩子，被测代码会被静默跳过。
+**`settings-scrollbar.test.js`** 守的是「切换章节时上方选择槽长度变化、闪烁」。它把真实面板放进一个**固定高度、`overflow-y:auto` 的滚动容器**里（高度取得很讲究：短章节要放得下、长章节要溢出，否则复现不出来），在最短的「主题」（4 行）与最长的「音频」（9 行）之间来回切换，量 `getBoundingClientRect().width`：加了预留后两者都是 510px，并断言挂载时就写上了 `scrollbar-gutter: stable`、两侧都保留了滚动条宽度的盒子。**最后跑一次反向对照**——把预留去掉再量一次，断言宽度**确实**会变（520 → 510，正好是一个滚动条宽）。没有这条对照，「宽度相同」也可能只是因为 mock 压根没复现这个缺陷。它也是唯一一个给 React 桩提供 `useEffect` 的设置类用例：预留是在**挂载后的 effect** 里做的（提交前 DOM 还不存在），桩若不实现该钩子，被测代码会被静默跳过。
 
 **`settings-rows.test.js`** 不用浏览器也不用 React：以**记录型 `React` / `slots` + 假的设置 transport**（`test/fixtures/settings-scope.js`）在进程内跑一次真实 `apply()`，抓下设置面板真正的元素树。设置页是用户唯一能碰到这些开关的入口，而那里的错误（抛异常、漏 key、开关写错了 DSH 设置的字段）check.js 与画布测试都看不见。
 
-> 说明：这个插件从 **`localStorage` 迁移到了 DSH 的持久化设置服务**（见 features.md / engineering-notes.md）。因此设置类测试不再往浏览器存储里塞值，而是驱动假的 transport：除 `settings-config-forms.test.js` 之外的用例走旧世代 `ctx.settingsScope`（fixture 的 `settingsScopeStub`，在内存里扮演 `<settings.yaml>` 的命名字段节），新世代由 `configFormsStub` 扮演 `ctx.configForms`（命名空间 = profile entry id）。断言 30 行齐全且归入 5 个分组容器、key 唯一、分组标题（01 主题 / 02 背景 / 03 动画 / 04 娱乐 / 05 音频）与配色样式规则都在、配色行默认显示谷地黄且按钮提供「切换武陵青」、点击把 `palette` 写成 `wuling`、存了 `wuling` 时反向提供「切换谷地黄」并标注 `#14d0d0`、图层关闭时子开关为 disabled、开启后恢复可用，雷霆大字与大字入场动画均默认为关、说明文字包含「任务开始」/「任务完成」与 3 秒、**子开关只写自己的字段而不误写主开关的**，以及点击确实写入文档里那个 DSH 设置字段。
+> 说明：这个插件从 **`localStorage` 迁移到了 DSH 的持久化设置服务**（见 features.md / engineering-notes.md）。因此设置类测试不再往浏览器存储里塞值，而是驱动假的 transport：除 `settings-config-forms.test.js` 之外的用例走旧世代 `ctx.settingsScope`（fixture 的 `settingsScopeStub`，在内存里扮演 `<settings.yaml>` 的命名字段节），新世代由 `configFormsStub` 扮演 `ctx.configForms`（命名空间 = profile entry id）。断言 28 行齐全且归入 5 个分组容器、key 唯一、分组标题（01 主题 / 02 背景 / 03 动画 / 04 娱乐 / 05 音频）与配色样式规则都在、配色行默认显示谷地黄且按钮提供「切换武陵青」、点击把 `palette` 写成 `wuling`、存了 `wuling` 时反向提供「切换谷地黄」并标注 `#14d0d0`、图层关闭时子开关为 disabled、开启后恢复可用，雷霆大字与大字入场动画均默认为关、说明文字包含「任务开始」/「任务完成」与 3 秒、**子开关只写自己的字段而不误写主开关的**，以及点击确实写入文档里那个 DSH 设置字段。
 
 > 同一文件也守**章节选择条**（滑动槽）：条在页面顶部（`role=tablist`）、5 个段按章节顺序排列且**标签不带编号**、每段可点、默认选中第一章、**恰好一个章节可见**（其余 `display:none`）、tab 与 panel 的 `aria-controls` / `aria-labelledby` 互指、roving tabindex、每段 tooltip 里带「编号 + 章节名」；再点一次「背景」并重渲染，断言可见章节、`aria-selected` 与滑动块的 `translateX(100%)` 三者一起跟随；最后按一次 `→` 断言选择走到「动画」且调用了 `preventDefault`。选择条自身用 `key: 'tabs'`——**key 不能以 `group-` 开头**，否则上面的「5 个分组容器」会把选择条也算成一个章节。
 
@@ -293,18 +293,59 @@ node test/bloom.test.js
 node test/glass.test.js
 ```
 
-四套明暗 × 配色下逐档核对模糊半径与填充 alpha、几何稳定、悬停/选中对比度达标，另外钉住「霜上在面、不上在壳」这条契约：
+四套明暗 × 配色下逐档核对模糊半径与填充 alpha、几何稳定、悬停/选中对比度达标，另外钉住两条契约。
+
+**一、霜上在「面」，不上在「壳」：**
 
 - `[data-dockkit-host='dock'] > [class*='_tabHost']` **必须**拿到 backdrop 模糊与玻璃填充（断言匹配仍然活着——宿主重命名这张面时，霜会静默消失，这是最容易悄悄坏掉的一条）；
 - `[data-sidebar-right-panel]` **必须**保持全透明、`backdrop-filter: none`。它是通高的定位壳，上霜等于往对话栏盖半屏色膜；
 - 这两条在 `push` 与 `fullscreen` 两种模式下都成立——`fullscreen` 排除的是**壳**，不是面。
 
-这条守卫做过反向对照：把选择器换回原来的 `:is([data-composer-card], [data-sidebar-right-panel='push'])`，测试立刻报 `the docked pane surface must carry the frost`。
+**二、一种材质三处共用，黄色光源只有一个：**
 
-两个夹具坑，都真实踩过：
+- 输入框、左侧栏 `.BynINW_sidebarCol`、顶栏 `::before` 三者的**填充字符串必须完全相等**；侧栏与顶栏模糊半径必须相等，并且随 `off/soft/standard/heavy` 档位同步变化；
+- 侧栏与顶栏**各自必须有 `inset` 阴影**（边界线）。Windows 上宿主把侧栏的 `border-right` 置为 `none`，顶栏也没有边框，这两条线是唯一边界；
+- **真实像素检查顶栏模糊**：夹具把锐利条纹放到顶栏下方，比较 blur=`standard` 与 blur=`off` 的顶栏像素。只看 computed `backdrop-filter` 不够——原先 `frame::before` 被 z-index:0 等高线层盖住，计算样式有 blur，画面却仍是锐利的；现在测试同时钉住顶栏 `z-index:1`；
+- **共享黄色光晕只准一层**：唯一 `radial-gradient` 在铺满 frame 的等高线底板上；顶栏与侧栏各自背景图不能再出现黄色径向光晕，避免两个独立的渐变在交界处分裂。这里不使用前景 `::after` 覆盖层。
 
-1. **类名不能想当然。** 第一版夹具写的是 `class="tabHost"`，而真实宿主给的是 `_tabHost_6nhg2_162`——**导出名 + hash + 行号**。于是 `[class*='_tabHost']` 匹配不到，测试红在一个夹具错误上。注意这与布局模块不同：那边是 `BynINW_centerCol`（**导出名 + 模块名**，没有行号），所以既有规则用 `[class$='_centerCol']` 是对的，而 DockLayout 这边必须用子串。
+这些检查会抓住失效的 band stacking、重复的本地 radial glow、顶栏失去真实模糊，以及侧栏或 band 的独立填充漂移；浏览器夹具不覆盖操作系统原生 caption 控件的合成效果。
+
+夹具坑，都真实踩过：
+
+1. **类名不能想当然。** 第一版夹具写的是 `class="tabHost"`，而真实宿主给的是 `_tabHost_6nhg2_162`——**导出名 + hash + 行号**。于是 `[class*='_tabHost']` 匹配不到，测试红在一个夹具错误上。注意这与布局模块不同：那边是 `BynINW_sidebarCol`（**导出名 + 模块名**，没有行号），所以既有规则用 `[class$='_centerCol']` 是对的，而 DockLayout 这边必须用子串。
 2. **夹具不能给壳上色。** 第一版给 `[data-sidebar-right-panel]` 写了 `background:#eee`，于是「壳必须透明」这条断言一开始就是红的——而真实的 `SidebarRight.module.css` 对面板正是 `background:0 0`。这条规则守的就是「主题别去画那个盒子」，夹具必须照抄宿主的透明，否则测的是夹具不是主题。
+3. **夹具必须带宿主的顶栏几何。** 侧栏/顶栏那组规则要求「`_frame` 有 `::before` 顶栏带」以及「侧栏被 `padding-top:var(--dsh-windows-titlebar-height)` 推到带下方」。夹具缺了这两样，「泛光层高 = 顶栏带高」这条断言会拿 `36px` 去对 `0px`。夹具现在照抄宿主的 `::before` 与 `data-windows-titlebar` 的 padding。
+4. **夹具的类名曾经骗过选择器。** 老夹具用的是 `.app_frame` / `.app_sidebarCol`，主题的 `[class*='_frame']` / `[class$='_sidebarCol']` 在它上面根本匹配不到——于是「侧栏规则是死的」这件事在夹具里也复现不出来。夹具现已改为宿主真实类名 `BynINW_frame` / `BynINW_sidebarCol`。
+
+第 4 条正是本文档末尾那条警告的又一例：**夹具是为了让选择器通过而搭的，它就从验证退化成了同义反复。** 反过来也成立——夹具若比真实 DOM「更容易不匹配」，就会红在一个假问题上。
+
+---
+
+## 侧栏外壳与折叠按钮（真实 chrome 夹具）
+
+```bash
+node test/chrome-glass.test.js      # npm run test:chrome
+```
+
+`glass.test.js` 将侧栏抽象成**一个 surface div**，因此不足以检查 SidebarRoot 内部覆盖层、fixed 控件和品牌区域。`chrome-glass.test.js` 补充了宿主的 `frame > sidebarCol > root > logoRow > (brand, toggle)` 骨架、expanded/rail 两种条件 DOM，以及从安装包样式表提取的 CSS（`test/fixtures/host-bundles/`；可用 `tools/extract-host-css.mjs` 更新）。Windows rail 的 `wide = !collapsed`：collapsed 时 host 不渲染品牌及 wide-only 的会话标签。
+
+有一次真实回归来自选择器过宽：expanded new-session 按钮虽然在正常 flex flow，却也被提升到 y=54，覆盖原本位于 logoRow 的鱼形 mark 和 HARNESS 字标；它的内部后代也被额外变换。当前浏览器用例直接检查扩展态品牌/文字、按钮分离位置和点击命中，防止只通过“控件没出界”这类不充分断言。
+
+断言分组，每条都针对可观测结果，而不是只看一条计算样式：
+
+| 断言 | 抓的是 |
+| --- | --- |
+| 侧栏 surface 的背景透明、列仍有模糊、边界线仍是 inset | host 的 root surface 不得盖住列上的磨砂层 |
+| 截图中侧栏带的亮度跨度和颜色数达到阈值 | 磨砂层必须透出测试图案，而非只看起来存在于 computed style |
+| toggle 和 collapsed new-session 按钮的**变换后盒子**在 band 内，控件可见且可 hit-test | 带 `backdrop-filter` 的侧栏列成为 fixed descendants 的包含块；transform 影响实际 `getBoundingClientRect()`，所以测渲染坐标 |
+| frost on/off × expanded/collapsed 状态矩阵 | on 时两 fixed 控件回到 band；off 时 host y=6/overflow 恢复；expanded new-session 保持 flex flow、不盖 logo |
+| expanded brand mark、HARNESS 字标和新建会话文字均可见、彼此不重叠且 hit-test 成功 | 避免宽泛 selector 把 expanded action 提升到 logo 行或变换其子元素 |
+| collapsed host DOM 不含 brand 和 wide-only 标签；expanded DOM 含两者 | 夹具需尊重 host 条件渲染，不能用 theme workaround 隐藏不存在的内容 |
+| 顶栏与侧栏计算填充、模糊相等；磨砂关闭后 host surface/裁剪恢复 | 验证 web 表面一致及规则门控；不代表 native caption 控件测试 |
+
+`selftest.js` 对注入的错误变体做反向对照：去掉霜面门控、让 expanded new-session 按钮进入位移分支、让 `newSession` 子串后代进入位移分支、或恢复列裁剪，都必须触发对应 guard。
+
+静态守卫用下标走花括号解析 selector/body，而不是正则切分；并且针对具体 host contract 断言 `button[class*='_toggle']` 和 `[class*='_collapsed'] button[class*='_newSession']`，不再用宽泛的类子串冒充目标元素。
 
 ---
 

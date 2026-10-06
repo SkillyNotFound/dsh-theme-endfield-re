@@ -412,7 +412,7 @@ body{font-family:var( --dsw-font-family, -apple-system, … )}
 
 ### 面板宽度：滚动条占的是布局宽度
 
-设置页在固定高度的容器里滚动，而**经典滚动条占布局宽度**——主题自己就定了 `::-webkit-scrollbar { width: 10px }`。于是「短章节不滚动、长章节滚动」这件事会改变内容盒宽度：实测同一个面板在「主题」（4 行）是 520px、在「音频」（11 行）是 510px。加上章节选择条之后，这个 10px 的来回变化就表现为**上方那条选择槽在切换时变长变短**。
+设置页在固定高度的容器里滚动，而**经典滚动条占布局宽度**——主题自己就定了 `::-webkit-scrollbar { width: 10px }`。于是「短章节不滚动、长章节滚动」这件事会改变内容盒宽度：实测同一个面板在「主题」（4 行）是 520px、在「音频」（整理后的 9 行）是 510px——音频章从 11 行精简到 9 行之后这两个数字仍然成立，因为决定宽度的是「这一章会不会滚动」，不是行数本身。加上章节选择条之后，这个 10px 的来回变化就表现为**上方那条选择槽在切换时变长变短**。
 
 修法是 `scrollbar-gutter: stable`——预留后无论有没有滚动条，内容盒宽度都不变。两个实现细节值得记下来：
 
@@ -648,6 +648,54 @@ body[data-endfield-glass] [data-sidebar-right-panel] [data-dockkit-host='dock'] 
 2. 夹具**不能给壳上色**——真实 `SidebarRight.module.css` 对面板就是 `background:0 0`。第一版夹具给它写了 `background:#eee`，于是"壳必须透明"这条断言一开始就是红的，测的是夹具而不是主题。
 
 `test/glass.test.js` 现在同时守住两侧：面**必须**有模糊与填充（并断言这条匹配还活着——宿主重命名时霜会静默消失），壳**必须**保持透明且 `backdrop-filter: none`，两种模式都查。反向对照：换回原来的选择器立刻报 `the docked pane surface must carry the frost`。
+
+### 九类：一条规则一个元素都没匹配到，和一条规则根本没送到浏览器，症状完全一样
+
+接着八类继续调磨砂玻璃时，用户报的是两件事：「侧栏是透明的（能清楚看到等高线），输入框又模糊得太过了」，以及「顶部那一横条也该纳入侧栏的效果」。
+
+第一件事的成因不是数值，而是**主题的侧栏规则从来没有生效过**，而设置行照旧显示档位：
+
+```css
+body[data-endfield-glass] [data-slot='sidebar'] > div { ... }
+```
+
+`[data-slot='sidebar']` **在整套发布产物里一次都没有出现**。把 133 个 `lib/client.js` 加前端 bundle 逐个扫一遍，`data-slot="sidebar"` 命中数为 0；前端 CSS 里也没有任何 `[data-slot=sidebar]` 规则。真实的侧栏列由布局模块上色，类名是 `BynINW_sidebarCol`（即 `[class$='_sidebarCol']`，主题的等高线规则一直在用这一条）。
+
+于是「侧栏完全透明」不是刻意设计，是这条规则**静默失效**：侧栏保持宿主的不透明底，而主题在等高线开启时又会把 `_sidebarCol` 的背景清成透明，两件事叠起来就是「看得见等高线、没有霜、也没有边界线」。**档位显示正常、代码看着完整、测试全绿，但功能等于没写。**
+
+顺带暴露的第二个坑更隐蔽：Windows 上宿主对侧栏写了
+
+```css
+[data-windows-titlebar] .BynINW_sidebarCol{border-right:none}
+```
+
+——**边界线被宿主删掉了**。所以侧栏的 1px 边界必须由主题自己画，否则无论霜上得对不对，霜区与对话栏之间都没有分界。
+
+第三件事是「顶部那一横条」。它不是一个 DOM 元素，而是**应用外框自己的伪元素**：
+
+```css
+[data-windows-titlebar] .BynINW_frame:before{content:"";height:var(--dsh-windows-titlebar-height);
+  background:var(--dsw-specific-sidebar-fill);-webkit-app-region:drag;position:absolute;inset:0 0 auto}
+```
+
+实测宽 1400、高 36、贴顶；而侧栏列被 `padding-top:var(--dsh-windows-titlebar-height)` 推到它下方（侧栏 y=36，与顶栏带同宽同色）。所以「顶栏 + 侧栏」本来就是**宿主用同一个 `--dsw-specific-sidebar-fill` 画出来的一块 L 形面板**，把它一起纳入是还原宿主本意，不是新增设计。
+
+第四件事：用户明确要求泛光**共享一层，不要每处各加一个**。这不是偏好，是**只能这么做**——两个元素只能画出两段独立的梯度，拐角处必然出现两道接缝。所以高光落在**一个** `::after` 上（外框的 `::before` 已被宿主的顶栏带占用），尺寸 = `--dsh-sidebar-width` × `--dsh-frame-top-clearance`，一层覆盖整个 L 形，135° 高光才能从侧栏不间断地绕进顶栏。
+
+> **`data-windows-titlebar` 挂在 `<html>` 上，不是 `<body>`。** 宿主读的是 `document.documentElement.hasAttribute('data-windows-titlebar')`，它自己的 CSS 也一律写成 `html[data-windows-titlebar] …`。第一次把顶栏边界线写成 `body[data-endfield-glass][data-windows-titlebar] …`，选择器一次都不匹配，边界线**静默消失**——和本节前半段是同一个错误的两个分身：**属性写在错的元素上，等于没写。**
+
+数值最终定为**一种材质三处共用**：填充 `248 247 240 / .62`（暗色 `31 36 34 / .72`）、模糊 `10px`，三档 6/10/15 px。理由写进了 [glass.md](glass.md)，两条都与这个主题本身有关：强调色等高线是背景，应当透过玻璃可读；而 1px 细线被 14px 半径抹开就不再是线——原先 8/14/22 px 配 α .8–.9 正是「输入框过糊、侧栏却完全没有」的来源，因为那套数值是按「不透明板子」调出来的，不是按「透光玻璃」调的。
+
+**验证方式**：把 `app.asar` 里的 `AppFrame` / DockLayout / `SidebarRight` 真实 CSS 与主题样式表一起灌进无头 Chromium，按真实骨架摆好 DOM（`html[data-windows-titlebar]` + `::before` 顶栏带 + `padding-top` 侧栏），再同时读**计算样式**与**像素**：
+
+| 表面 | 填充 | 模糊 | 边界线 |
+| --- | --- | --- | --- |
+| 输入框 | `rgba(248,247,240,0.62)` | `blur(10px) saturate(1.05)` | — |
+| 侧栏 | 同上 | 同上 | `inset -1px 0 0` |
+| 顶栏 `::before` | 同上 | 同上 | `inset 0 -1px 0` |
+| 泛光 `::after` | 梯度 | — | 280×36 |
+
+`test/glass.test.js` 断言三者填充**字符串相等**（而不是各写各的数值，否则迟早各自漂移），并对三条新守卫各做了一次变异验证：换回死掉的 `[data-slot='sidebar']`、把顶栏边界线改成 `box-shadow: none`、把 `::after` 的 `content` 改成 `none`——三条各被一条**点名**的断言抓住。
 
 ---
 

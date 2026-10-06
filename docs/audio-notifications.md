@@ -10,7 +10,8 @@
 
 ## 1. 它做什么
 
-在四个**真实发生**的时刻各播一声，声音由**宿主进程**播放（不是浏览器），因此页面最小化、切到别的应用、甚至关掉标签页都还能听见：
+在四个**真实发生**的时刻各播一声，声音由**宿主进程**播放（不是浏览器），因此页面最小化、切到别的应用、甚至关掉标签页都还能听见。
+出厂音：`boot` 是代码算出来的合成音，其余四个槽位随包发布录音（4.4–6.4 秒），见 §5。
 
 | 槽位 | 时刻 | 判据 |
 | --- | --- | --- |
@@ -80,24 +81,55 @@
 > `audioSoundDir` 字段还在 schema 里，宿主侧仍然按「自定义目录 → 工作区 → 桌面 → 内置音」解析，
 > 所以把行加回来就能立刻用；在那之前设置页不请求 `/theme-endfield/audio/state`。
 
-## 5. 自定义音效（覆盖内置电子音）
+## 5. 出厂音效与自定义覆盖
 
-把 wav 按槽位名放进 **自定义目录 → 工作区根目录 → 桌面 → 内置合成音** 的第一处命中位置：
+解析顺序（第一处命中即用）：
 
-```
-boot.wav  turn-start.wav  turn-done.wav  attention.wav  turn-fail.wav
-```
+**自定义目录 → 工作区根目录 → 桌面 → 内置 `sounds/`**
 
-要求 **16-bit PCM WAV**、44.1kHz、单声道或立体声；推荐 0.5–1.5 秒，**上限 2.5 秒**（防抖窗）。
-设置页原本有一行「当前音源」显示每个槽位实际解析到的文件路径，**该行已随自定义音效一起暂时移除**；
-确认真实解析结果暂时只能看宿主控制台或 `/theme-endfield/audio/state`。
+**每个槽位只认一个文件名，由 `lib/slots.js` 的 `file` 字段声明**，解析器读的是它而不是 `<slot>.wav`：
 
-内置音不是二进制素材，而是由 `lib/tone.js` 按 `lib/slots.js` 的音符定义**算出来**的：
+| 槽位 | 文件名 |
+| --- | --- |
+| `boot` 启动加载动画音 | `boot.wav` |
+| `turn-start` 任务开始音 | `start.wav` |
+| `turn-done` 任务结束音 | `end.wav` |
+| `attention` 需要你回应 | `wait.wav` |
+| `turn-fail` 出错提示音 | `erro.wav` |
+
+把同名的 wav 放进上面任意一个靠前的目录即可覆盖内置音（自定义/工作区/桌面三处都用同一个名字 ——
+一个槽位两个名字正是「我放的文件没反应」这类问题的来源）。**改名要改 `lib/slots.js` 的 `file`，不要改文件**：
+解析、打包校验与测试都从那张表读名字。
+
+要求 **16-bit PCM WAV**（音量缩放只认 8 / 16-bit PCM，其他位深会被原样播放 —— 音量滑块对它无效），
+单声道或立体声，采样率不限（内置录音 48 kHz、合成音 44.1 kHz，播放器两者都吃）。
+**没有时长上限**：同一槽位「上一声还在响」的窗口由文件自身时长 + 250 ms 推出（`lib/audio.js` 的
+`playUntil`），所以一条 6 秒的语音不会被下一声截断，代价是同一槽位约 6 秒内不会再响。
+
+### 出厂自带的五个音
+
+| 槽位 | 出厂音 | 来源 |
+| --- | --- | --- |
+| `boot` 启动加载动画音 | 0.95 s 合成音（G4 → D5 → G5 上行） | `lib/tone.js` 按 `lib/slots.js` 的音符定义**算出来** |
+| `turn-start` 任务开始音 | 5.88 s 录音 | `sounds/start.wav`（随包发布的录音） |
+| `turn-done` 任务结束音 | 6.44 s 录音 | `sounds/end.wav` |
+| `attention` 需要你回应 | 6.16 s 录音 | `sounds/wait.wav` |
+| `turn-fail` 出错提示音 | 4.36 s 录音 | `sounds/erro.wav` |
+
+四个录音都是 **48 kHz / 16-bit PCM / 立体声**。随包发布的这一版实测峰值 −13.6 ~ −9.7 dBFS，
+比合成音（−3 dBFS）低约 8–10 dB：**同一音量下滑块对这四个槽位更「轻」**，要齐平可以把音量推到 100
+或自行归一化后再替换文件。
+`lib/slots.js` 用 `shipped: 'recorded' | 'tone'` 标明每个槽位的出厂音属于哪一类。
+
+### 重新生成 / 校验
 
 ```bash
-node scripts/build-sounds.js          # 重新生成 sounds/*.wav
-node scripts/build-sounds.js --check  # 校验生成物与定义一致
+node scripts/build-sounds.js          # 只重新生成 shipped: 'tone' 的槽位
+node scripts/build-sounds.js --check  # 合成音与定义一致 + 录音文件在且是可播放的 16-bit PCM
 ```
+
+**录音槽位永远不会被脚本覆盖**：`build-sounds.js` 对它们只做存在性与格式校验。把录音换成合成音等于
+悄悄换掉出厂默认，所以那条路被刻意堵住了；要换录音就直接按上表的文件名替换 `sounds/` 里的对应文件。
 
 ## 6. 桥接路由（宿主提供，页面调用）
 
@@ -133,9 +165,10 @@ node scripts/build-sounds.js --check  # 校验生成物与定义一致
 ```bash
 node test/audio-notify.test.js          # 宿主半边：判据、门控、防抖、降级、路由
 node test/audio-attention-watch.test.js # 客户端：锚点、即时检测、边沿、开关
-node scripts/build-sounds.js --check    # 内置音与定义一致
+node scripts/build-sounds.js --check    # 合成音与定义一致 + 四个录音出厂音可播放
 ```
 
 `test/audio-notify.test.js` 覆盖的关键断言：会话框凭据判定、只有"含可见文本的回合"才播结束音、
 子代理不响、开关与音量 0 静音、无 `subprocess` 时静默降级、自定义文件覆盖、音量缩放走缓存副本、
+**五个出厂音齐备（合成音逐字节对照定义，四个录音逐个解析为 16-bit PCM）**、
 以及 `agent/error` **必须不发声**（用户的规则：不需要人工干预的错误静音）。
