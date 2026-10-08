@@ -261,9 +261,9 @@ try { tree = rendered() } catch (e) { fail('settings render threw: ' + e.message
    verify it attaches only to the active conversation root and changes presentation
    without depending on DOM class hashes or the announcement feature. */
 activeConversationRoot = makeEl('div')
-activeConversationRoot.getBoundingClientRect = () => ({ width: 800, height: 700, top: 0, left: 0 })
-let composerAnchorRect = { width: 360, height: 70, top: 580, left: 380 }
-const composerAnchor = { getBoundingClientRect: () => composerAnchorRect }
+let conversationRect = { width: 800, height: 700, top: 0, left: 320 }
+activeConversationRoot.getBoundingClientRect = () => conversationRect
+const composerAnchor = { getBoundingClientRect: () => ({ width: 360, height: 70, top: 580, left: 380 }) }
 activeConversationRoot.querySelector = (selector) => selector === '[data-composer-card]' ? composerAnchor : null
 activeConversationRoot.className = 'Conversation_root'
 activeConversationRoot.setAttribute('data-phase', 'active')
@@ -279,35 +279,44 @@ else {
   const sources = glow ? glow.children : []
   const sourceStyles = sources.map((source) => source.style && source.style.values ? source.style.values : {})
   const firstSource = sourceStyles[0] || {}
-  if (['--glow-source-x', '--glow-source-width', '--glow-source-height-idle', '--glow-source-height-running', '--glow-source-tint', '--glow-source-opacity-high', '--glow-source-duration-idle', '--glow-source-duration-running'].every((key) => firstSource[key])) pass('每个中心光源有随机位置、范围、色阶、强度与呼吸节奏')
+  if (['--glow-source-x', '--glow-source-width-idle', '--glow-source-width-running', '--glow-source-height-idle', '--glow-source-height-running', '--glow-source-tint', '--glow-source-opacity-high', '--glow-source-duration-idle', '--glow-source-duration-running'].every((key) => firstSource[key])) pass('每个中心光源有随机位置、范围、色阶、强度与呼吸节奏')
   else fail('中心光源随机参数缺失：' + JSON.stringify(firstSource))
-  if (new Set(sourceStyles.map((style) => style['--glow-source-width'])).size > 20) pass('中心光覆盖尺寸错落随机')
+  if (new Set(sourceStyles.map((style) => style['--glow-source-width-idle'])).size > 20) pass('中心光覆盖尺寸错落随机')
   else fail('中心光的覆盖尺寸缺少变化')
   const xValues = () => sourceStyles.map((style) => Number.parseFloat(style['--glow-source-x'] || '0'))
   const centerOf = (values) => values.reduce((sum, value) => sum + value, 0) / (values.length || 1)
   const spreadOf = (values) => Math.max(...values) - Math.min(...values)
   const idleXs = xValues()
-  if (spreadOf(idleXs) < 35 && Math.abs(centerOf(idleXs) - (560 / 1440 * 100)) < 8) pass('空闲光点依据输入框中轴线聚集')
-  else fail('空闲光点没有聚在输入框下方：' + JSON.stringify({ mean: centerOf(idleXs), spread: spreadOf(idleXs) }))
-  composerAnchorRect = { width: 360, height: 70, top: 580, left: 720 }
+  const dialogCenter = (conversationRect.left + conversationRect.width / 2) / 1440 * 100
+  const dialogLeft = conversationRect.left / 1440 * 100
+  const dialogRight = (conversationRect.left + conversationRect.width) / 1440 * 100
+  if (Math.abs(centerOf(idleXs) - dialogCenter) < 0.1 && spreadOf(idleXs) > 20 && spreadOf(idleXs) < 30
+      && Math.min(...idleXs) >= dialogLeft && Math.max(...idleXs) <= dialogRight
+      && Math.abs(dialogCenter - (560 / 1440 * 100)) > 8) pass('闲置光点适度聚拢在对话框中轴附近，仍在对话框范围内')
+  else fail('闲置光点未铺在对话框范围或误锚到输入框：' + JSON.stringify({ mean: centerOf(idleXs), spread: spreadOf(idleXs), dialogCenter }))
+  conversationRect = { width: 700, height: 700, top: 0, left: 500 }
   dispatchWindowEvent('transitionend', { propertyName: 'transform' })
   const shiftedXs = xValues()
-  if (Math.abs(centerOf(shiftedXs) - (900 / 1440 * 100)) < 8) pass('侧栏打开后中心跟随输入框向右移动')
-  else fail('侧栏打开后光效未跟随输入框：' + centerOf(shiftedXs))
-  composerAnchorRect = { width: 360, height: 70, top: 580, left: 380 }
+  if (Math.abs(centerOf(shiftedXs) - (850 / 1440 * 100)) < 0.1) pass('侧栏开合时闲置光域跟随对话框中轴移动')
+  else fail('对话框移动后闲置光域未跟随中轴：' + centerOf(shiftedXs))
+  conversationRect = { width: 800, height: 700, top: 0, left: 320 }
   dispatchWindowEvent('transitionend', { propertyName: 'transform' })
-  const restoredXs = xValues()
-  if (Math.abs(centerOf(restoredXs) - (560 / 1440 * 100)) < 8) pass('侧栏关闭后中心回到输入框中轴线')
-  else fail('侧栏关闭后光效未回到输入框：' + centerOf(restoredXs))
   sessionA.set({ running: true })
-  if (glow && glow.getAttribute('data-running') === 'true') pass('任务 running 快照切换为全屏散开状态')
+  if (glow && glow.getAttribute('data-running') === 'true') pass('任务 running 快照切换为扩散状态')
   else fail('任务运行状态没有传递给泛光层')
   const runningXs = xValues()
-  if (spreadOf(runningXs) > 70) pass('任务运行时光点散布到整个窗口宽度')
-  else fail('running 光点没有散布到整个窗口：' + JSON.stringify(runningXs))
+  if (spreadOf(runningXs) >= 89 && Math.abs(centerOf(runningXs) - dialogCenter) < 0.1) pass('运行光点向两侧大幅扩散且保持对话框中轴')
+  else fail('running 光点扩散不足或中心偏离对话框：' + JSON.stringify({ mean: centerOf(runningXs), spread: spreadOf(runningXs) }))
+  conversationRect = { width: 700, height: 700, top: 0, left: 500 }
+  dispatchWindowEvent('transitionend', { propertyName: 'transform' })
+  const shiftedRunningXs = xValues()
+  if (Math.abs(centerOf(shiftedRunningXs) - (850 / 1440 * 100)) < 0.1 && spreadOf(shiftedRunningXs) > 85) pass('运行中侧栏移动后扩散仍以新对话框中轴为中心')
+  else fail('运行中光域未随对话框轴线移动')
+  conversationRect = { width: 800, height: 700, top: 0, left: 320 }
+  dispatchWindowEvent('transitionend', { propertyName: 'transform' })
   sessionA.set({ running: false })
   const settledXs = xValues()
-  if (spreadOf(settledXs) < 35 && Math.abs(centerOf(settledXs) - (560 / 1440 * 100)) < 8) pass('任务结束后重新回到输入框下方')
+  if (spreadOf(settledXs) > 20 && spreadOf(settledXs) < 30 && Math.abs(centerOf(settledXs) - dialogCenter) < 0.1) pass('任务结束后恢复对话框范围分布与中轴')
   else fail('任务结束后光点未收回对话框范围')
   glowSelect.props.onChange({ target: { value: 'off' } })
   if (!activeConversationRoot.children.some((child) => child.hasAttribute('data-endfield-bottom-glow-layer'))) pass('关闭泛光后移除 DOM 层')
@@ -681,8 +690,13 @@ if (src.includes('glowRandomBetween(65, 115)') && src.includes('glowRandomBetwee
     && glowCss.includes('height: clamp(150px, 22vh, 250px)')
     && glowCss.includes('height: clamp(260px, 40vh, 420px)')) pass('闲置光效矮小，运行态高度约为两倍')
 else fail('空闲/运行高度差异没有达到约两倍')
-if (/mix-blend-mode:\s*lighten/.test(glowCss)) pass('泛光采用提亮混合模式')
-else fail('泛光没有使用 lighten 混合')
+if (src.includes('glowRandomBetween(220, 580)') && src.includes('source.__endfieldAxisOffset')
+    && src.includes('(rect.width / viewportWidth) * 45') && src.includes('Math.max(90, idleSpan * 2)')
+    && src.includes('const getBottomGlowAnchor = () => bottomGlowHost')) pass('闲置光域聚拢于对话框中轴，运行态沿同一轴线向两侧至少扩散 90%')
+else fail('闲置光域或运行扩散未以对话框中轴为共同中心')
+if (!/mix-blend-mode:\s*lighten/.test(glowCss) && glowCss.includes('color-mix(in srgb, var(--endfield-glow-source-color)')
+    && glowCss.includes('opacity: var(--endfield-bottom-glow-opacity')) pass('光源以普通透明合成避免建立 backdrop root，输入框模糊可采样其后层')
+else fail('泛光混合可能再次隔断 backdrop-filter 的背景取样')
 if (glowCss.includes('[data-endfield-glow-source]') && glowCss.includes('position: fixed')
     && glowCss.includes('left: 0; right: 0; bottom: 0')
     && !glowCss.includes('mask-image:') && !glowCss.includes('overflow: hidden')) pass('无裁切边界的透明视口层，running 可覆盖全屏底部')
@@ -696,13 +710,14 @@ else fail('中心光动画没有采用低成本渲染路径')
 if (glowCss.includes('radial-gradient(ellipse 44% 95% at 50% 100%') && glowCss.includes('transparent 100%')) pass('每个中心光按椭圆范围渐隐，不留下矩形色块')
 else fail('中心光缺少椭圆渐隐，可能露出矩形边界')
 if (src.includes('glowRandomBetween(3.5, 7)') && src.includes('glowRandomBetween(1.8, 3.4)')
-    && src.includes('glowRandomBetween(0.72, 0.9, 2)') && src.includes('glowRandomBetween(1.14, 1.3, 2)')) pass('呼吸周期缩短并扩大缩放幅度，运动可辨')
+    && src.includes('glowRandomBetween(0.65, 0.82, 2)') && src.includes('glowRandomBetween(1.18, 1.35, 2)')) pass('呼吸周期缩短并扩大缩放幅度，运动可辨')
 else fail('中心光呼吸周期仍慢或缩放幅度过小')
 if (glowCss.includes("data-dispersion='true'") && glowCss.includes('background-image: radial-gradient')) pass('可选色散仍使用柔和的中心扩散')
 else fail('中心光色散开关缺失')
 if (src.includes('BOTTOM_GLOW_SOURCE_COUNT = 30') && src.includes('getBoundingClientRect()')
-    && src.includes('dialogCenter') && src.includes('glowRandomBetween(1, 99)')) pass('默认 30 个光源依据对话框几何聚中，running 时重新散布')
-else fail('未使用对话框边界定位中心光，或默认数量不是 30')
+    && src.includes('dialogCenter') && src.includes('__endfieldAxisOffset')
+    && src.includes('const getBottomGlowAnchor = () => bottomGlowHost')) pass('默认 30 个光源两态均依据活动对话框几何聚中')
+else fail('未使用活动对话框边界定位中心光，或默认数量不是 30')
 if (src.includes('glowRandomBetween(5, 86) + \'%\'') && src.includes('ease-in-out infinite')
     && !src.includes('setInterval(rerollBottomGlowColor')) pass('每个中心光颜色固定取主题色至白色范围，不再定时跳色')
 else fail('中心光颜色抽样范围错误，或仍有定时跳色')

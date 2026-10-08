@@ -1,8 +1,20 @@
 # dsh-theme-endfield-re
 
+[![npm version](https://img.shields.io/npm/v/dsh-theme-endfield-re.svg)](https://www.npmjs.com/package/dsh-theme-endfield-re)
+
 参考《明日方舟：终末地》官网视觉风格的 DeepSeek Harness 主题插件。
 
 本项目由 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield) 1.1.5 分叉而来，此后独立维护。仓库内为完整主题，可直接安装、修改与测试。
+
+## 截图
+
+深色形态，谷地黄强调色：
+
+![深色配色下的新建会话页](https://raw.githubusercontent.com/SkillyNotFound/dsh-theme-endfield-re/main/assets/screenshots1.webp)
+
+浅色形态，武陵青强调色：
+
+![浅色配色下的新建会话页](https://raw.githubusercontent.com/SkillyNotFound/dsh-theme-endfield-re/main/assets/screenshots2.webp)
 
 ## AI 声明
 
@@ -48,7 +60,7 @@
 出厂自带五个音：启动加载动画音是代码算出来的合成音，任务开始 / 任务结束 / 需要你回应 / 出错四声随包发布录音（4.4–6.4 秒，文件名 `start/end/wait/erro.wav`）。
 
 **对话底侧泛光**
-对话页底部由 30 个低成本中心光源叠成宽阔柔和的光晕，位置依据实际输入框中轴测量并跟随侧栏位移：空闲时聚集在输入框下方，任务运行时平滑散布至整个窗口底部。每个光源的尺寸、强度、色阶与呼吸节奏各自随机，颜色稳定取自主题色到白色之间，不再跳色；采用亮化混合，叠在等高线之上、消息和输入框之下。
+对话页底部由 30 个低成本中心光源叠成宽阔柔和的光晕，两态均以活动对话框中轴为中心并跟随侧栏位移：空闲时光点聚集在对话框中轴附近（跨度约为框宽 45%），任务运行时以同一中轴向两侧扩散至少 90% 视口宽度。每个光源的尺寸、强度、色阶与呼吸节奏各自随机，颜色稳定取自主题色到白色之间，不再跳色；采用普通半透明合成，避免影响输入框磨砂模糊；处于等高线之上、消息和输入框之下。
 
 设置入口为「设置 › 终末地主题设置」。页面顶部是一条章节选择条（滑动槽），把主题 / 背景 / 动画 / 娱乐 / 音频 / 氛围六章收进六个段，一次只显示一章，方向键可切换。界面文案随 DSH 的语言设置即时切换，支持中英文。全部设置由 DSH 自身的设置服务持久化，与页面地址及端口无关，在浏览器与桌面端均可跨重启保留。
 
@@ -61,6 +73,14 @@
 三是补齐测试覆盖，使主题在宿主持续迭代的前提下保持可用。
 
 ## 安装
+
+从 npm 安装（推荐，只下载约 3 MB 运行文件）：
+
+```bash
+dsh plugin --profile web add dsh-theme-endfield-re
+```
+
+也可以直接从仓库安装。这条路会做一次完整的 git 克隆（含全部历史），明显更慢：
 
 ```bash
 dsh plugin --profile web add github:SkillyNotFound/dsh-theme-endfield-re

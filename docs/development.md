@@ -58,6 +58,22 @@ npm run deploy          # 按 package.json 的 files 集合镜像过去
 
 改动后只需更新 `package.json` 的 `version`（全仓库只此一处引用）。市场条目的 `install.version` 由市场 CI 在补全时从 `package.json` 读取，不需要手工改。
 
+## 发布到 npm
+
+插件以 npm 包分发，用户侧 `dsh plugin --profile web add dsh-theme-endfield-re` 只下载约 2.9 MB 运行文件；`github:` 那条路会做一次完整的 git 克隆（含全部历史），明显更慢。
+
+```bash
+npm login                  # 账号需开启 2FA
+npm publish --dry-run      # 核对发布物：27 files / 2.9 MB
+npm publish                # 会提示输入一次性验证码（auth-and-writes）
+```
+
+`prepublishOnly` 会先跑 `build-contour-worker --check`、`check.js`、`selftest.js` 与 `package-check.js`：worker 与 `client.js` 不同步、或 `files` 漏掉发布物时，发布会在这里被拦下。
+
+发布后 npm 页面约 1–2 分钟内可访问。`npm unpublish` 只有 72 小时窗口，所以首次发布前先跑一次 `--dry-run` 核对数字。
+
+**桌面 profile 不能走 CLI 迁移。** `dsh plugin --profile desktop ...` 会被直接拒绝（原因见第 1 节），本机要把依赖从 `github:` 记录换成 npm 版本，只能在应用的插件管理器里操作。
+
 ## 与皮肤市场的关系
 
 市场条目是**薄条目**，`install.commit` 由市场 CI 在补全时钉住。也就是说：

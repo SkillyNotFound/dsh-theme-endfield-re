@@ -12,9 +12,19 @@
     "arknights",
     "client"
   ],
+  "homepage": "https://github.com/SkillyNotFound/dsh-theme-endfield-re#readme",
+  "bugs": {
+    "url": "https://github.com/SkillyNotFound/dsh-theme-endfield-re/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SkillyNotFound/dsh-theme-endfield-re.git"
+  },
+  "author": "SkillyNotFound",
   "license": "MIT",
   "main": "index.js",
   "scripts": {
+    "prepublishOnly": "node scripts/build-contour-worker.js --check && node check.js && node selftest.js && node .github/scripts/package-check.js",
     "check": "node scripts/build-contour-worker.js --check && node check.js",
     "selftest": "node selftest.js",
     "sound:build": "node scripts/build-sounds.js",
@@ -82,6 +92,7 @@
     "cordis.patch.yml",
     "README.md",
     "NOTICE.md",
+    "SECURITY.md",
     "docs",
     "lib",
     "sounds",

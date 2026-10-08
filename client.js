@@ -1394,41 +1394,30 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
     const setGlowSourceVariable = (source, name, value) => {
       if (source && source.style && typeof source.style.setProperty === 'function') source.style.setProperty(name, String(value))
     }
-    const getBottomGlowAnchor = () => {
-      if (!bottomGlowHost) return null
-      if (typeof bottomGlowHost.querySelector === 'function') {
-        return bottomGlowHost.querySelector('[data-composer-card]')
-          || bottomGlowHost.querySelector("[class$='_composerSeat']")
-          || bottomGlowHost
-      }
-      return bottomGlowHost
-    }
-    const createBottomGlowSource = () => {
+    const getBottomGlowAnchor = () => bottomGlowHost
+    const createBottomGlowSource = (index) => {
       const source = document.createElement('span')
       source.setAttribute('data-endfield-glow-source', '')
       const set = (name, value) => setGlowSourceVariable(source, name, value)
-      source.__endfieldIdleOffset = glowRandomBetween(-0.5, 0.5, 3)
-      source.__endfieldRunningX = glowRandomBetween(1, 99)
+      source.__endfieldAxisOffset = (index / (BOTTOM_GLOW_SOURCE_COUNT - 1)) - 0.5
+      const sourceWidth = glowRandomBetween(220, 580) + 'px'
       set('--glow-source-x', '50%')
-      set('--glow-source-width', glowRandomBetween(220, 580) + 'px')
+      set('--glow-source-width-idle', sourceWidth)
+      set('--glow-source-width-running', sourceWidth)
       set('--glow-source-height-idle', glowRandomBetween(65, 115) + 'px')
       set('--glow-source-height-running', glowRandomBetween(150, 230) + 'px')
       set('--glow-source-tint', glowRandomBetween(5, 86) + '%')
-      set('--glow-source-opacity-low', glowRandomBetween(0.18, 0.34, 2))
-      set('--glow-source-opacity-high', glowRandomBetween(0.58, 0.92, 2))
+      set('--glow-source-opacity-low', glowRandomBetween(0.2, 0.35, 2))
+      set('--glow-source-opacity-high', glowRandomBetween(0.7, 1, 2))
       set('--glow-source-duration-idle', glowRandomBetween(3.5, 7) + 's')
       set('--glow-source-duration-running', glowRandomBetween(1.8, 3.4) + 's')
       set('--glow-source-delay', '-' + glowRandomBetween(0, 7) + 's')
-      set('--glow-source-scale-low', glowRandomBetween(0.72, 0.9, 2))
-      set('--glow-source-scale-high', glowRandomBetween(1.14, 1.3, 2))
+      set('--glow-source-scale-low', glowRandomBetween(0.65, 0.82, 2))
+      set('--glow-source-scale-high', glowRandomBetween(1.18, 1.35, 2))
       return source
     }
     const positionBottomGlowSources = (running, force = false) => {
       if (bottomGlowSources.length === 0) return
-      if (running) {
-        for (const source of bottomGlowSources) setGlowSourceVariable(source, '--glow-source-x', source.__endfieldRunningX + '%')
-        return
-      }
       const now = Date.now()
       if (!force && now - bottomGlowAnchorCheckAt < 350) return
       bottomGlowAnchorCheckAt = now
@@ -1438,13 +1427,15 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       const anchor = getBottomGlowAnchor()
       const rect = anchor && typeof anchor.getBoundingClientRect === 'function' ? anchor.getBoundingClientRect() : null
       const dialogCenter = rect && rect.width > 0 ? ((rect.left + rect.width / 2) / viewportWidth) * 100 : 50
-      const idleSpan = rect && rect.width > 0 ? Math.max(26, Math.min(58, (rect.width / viewportWidth) * 75)) : 40
+      const idleSpan = rect && rect.width > 0 ? (rect.width / viewportWidth) * 45 : 40
+      const runningSpan = Math.max(90, idleSpan * 2)
       if (!force && bottomGlowAnchorCenter !== null && Math.abs(dialogCenter - bottomGlowAnchorCenter) < 0.15
           && bottomGlowAnchorSpan !== null && Math.abs(idleSpan - bottomGlowAnchorSpan) < 0.15) return
       bottomGlowAnchorCenter = dialogCenter
       bottomGlowAnchorSpan = idleSpan
+      const span = running ? runningSpan : idleSpan
       for (const source of bottomGlowSources) {
-        const x = Math.max(1, Math.min(99, dialogCenter + source.__endfieldIdleOffset * idleSpan))
+        const x = dialogCenter + source.__endfieldAxisOffset * span
         setGlowSourceVariable(source, '--glow-source-x', x + '%')
       }
     }
@@ -1461,9 +1452,9 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       if (bottomGlowEl) positionBottomGlowSources(bottomGlowRunning === true, true)
     }
     const syncBottomGlowTransitionEnd = (event) => {
-      if (bottomGlowEl && bottomGlowRunning !== true
+      if (bottomGlowEl
           && ['transform', 'width', 'grid-template-columns', 'left', 'right'].includes(event && event.propertyName)) {
-        positionBottomGlowSources(false, true)
+        positionBottomGlowSources(bottomGlowRunning === true, true)
       }
     }
     const syncBottomGlowMount = () => {
@@ -1504,7 +1495,7 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         el.setAttribute('aria-hidden', 'true')
         bottomGlowSources = []
         for (let i = 0; i < BOTTOM_GLOW_SOURCE_COUNT; i++) {
-          const source = createBottomGlowSource()
+          const source = createBottomGlowSource(i)
           bottomGlowSources.push(source)
           el.appendChild(source)
         }
@@ -5572,7 +5563,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       [data-endfield-bottom-glow-layer] {
         position: fixed; z-index: -1; left: 0; right: 0; bottom: 0;
         height: clamp(150px, 22vh, 250px); overflow: visible; pointer-events: none;
-        mix-blend-mode: lighten; opacity: var(--endfield-bottom-glow-opacity, .42);
+        opacity: var(--endfield-bottom-glow-opacity, .42);
       }
       [data-endfield-bottom-glow-layer][data-running='true'] {
         height: clamp(260px, 40vh, 420px);
@@ -5580,7 +5571,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
       [data-endfield-glow-source] {
         --endfield-glow-source-color: color-mix(in srgb, var(--endfield-bottom-glow-accent, #fff500) calc(100% - var(--glow-source-tint)), #fff var(--glow-source-tint));
         position: absolute; left: var(--glow-source-x); bottom: 0;
-        display: block; width: var(--glow-source-width); height: var(--glow-source-height-idle);
+        display: block; width: var(--glow-source-width-idle); height: var(--glow-source-height-idle);
         transform: translateX(-50%) scale(.9); transform-origin: center bottom;
         opacity: .3; pointer-events: none;
         background: radial-gradient(ellipse 44% 95% at 50% 100%,
@@ -5592,7 +5583,7 @@ caption controls composite beside this CSS band. Browser tests cover web surface
         animation: endfield-center-glow-breathe var(--glow-source-duration-idle) var(--glow-source-delay) ease-in-out infinite;
       }
       [data-endfield-bottom-glow-layer][data-running='true'] [data-endfield-glow-source] {
-        height: var(--glow-source-height-running);
+        width: var(--glow-source-width-running); height: var(--glow-source-height-running);
         animation-duration: var(--glow-source-duration-running);
       }
       [data-endfield-bottom-glow-layer][data-dispersion='true'] [data-endfield-glow-source] {
